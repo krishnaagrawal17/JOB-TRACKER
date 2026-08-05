@@ -16,8 +16,11 @@ The tutor leads. It works through a fixed curriculum of five modules in order, a
 each module through structured lessons. It is not a chatbot that answers leadership
 questions — it is a tutor that runs a lesson.
 
-The application supports English, Hindi, and code-mixed Hinglish, detected automatically
-from the learner's speech. There is no language setting in the interface.
+The application teaches in English or Hindi. **The learner chooses**, explicitly, before
+starting — and can switch at any point mid-session. The choice persists across visits.
+Underneath, speech recognition runs in code-mixed mode, so a learner who chose English but
+drops a Hindi word mid-sentence is still transcribed correctly; the choice governs what
+language the tutor *teaches* in, not what the learner is permitted to say.
 
 ### Success criteria
 
@@ -27,7 +30,8 @@ Specifically:
 
 1. Every lesson in all five modules runs to completion without the tutor drifting off the
    lesson structure.
-2. Speaking Hindi produces a Hindi reply, without the learner configuring anything.
+2. Choosing Hindi teaches the whole module in Hindi, in a Hindi voice, and the choice is
+   still in effect on the learner's next visit.
 3. A learner who closes the tab returns to the same position, mid-lesson.
 4. A failure in any single component (mic, STT, LLM, TTS) leaves the session recoverable.
 5. Modules unlock in order, and Module 5 produces a spoken commitment specific enough to
@@ -257,10 +261,19 @@ One turn, end to end:
 
 ### Language handling
 
-STT auto-detects and returns the language code; `codemix` mode handles Hinglish, which is
-how bilingual Indian speakers actually talk. The tutor is instructed to reply in the
-learner's detected language, and TTS is called with a matching `language_code` and a voice
-selected per language. If detection is ambiguous, the previous turn's language persists.
+The learner picks English or हिंदी on the module map before starting, and the picker is
+also present inside a session so they can switch mid-lesson. The choice is stored in
+`localStorage` and applied on the next visit.
+
+That choice drives everything downstream: the tutor is instructed to teach in it, and TTS
+is called with the matching `language_code` and a voice selected for that language.
+
+Speech recognition is a separate concern from the teaching language. STT always runs in
+`codemix` mode, which is how bilingual Indian speakers actually talk — a learner studying
+in English who says "मेरा first manager" gets transcribed properly rather than mangled.
+The detected language is recorded on the transcript turn for display, but it does **not**
+silently change what language the tutor teaches in. An explicit choice the learner made
+should not be overridden by one sentence they happened to speak.
 
 Curriculum content is authored in English. Hindi delivery is generated — the model teaches
 the same lesson in Hindi. This is acceptable for a prototype; professionally translated
@@ -297,6 +310,7 @@ not in scope for the first working version.
 | `src/components/SessionView.tsx` | Mic control, session states, live transcript | `useVoiceSession` |
 | `src/hooks/useVoiceSession.ts` | Recording, the three API calls, playback, state machine | Browser APIs |
 | `src/hooks/useProgress.ts` | `localStorage` read/write | — |
+| `src/hooks/useLanguage.ts` | Chosen teaching language, persisted separately from progress | — |
 
 `engine.ts` is deliberately pure — it takes state and a model verdict and returns new
 state. That is what makes the pedagogy testable without spending API credits, and it is
