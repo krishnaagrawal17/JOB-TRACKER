@@ -3,11 +3,29 @@
 @tailwind utilities;
 
 :root {
-  --color-canvas: #010102;
-  --color-ink: #f7f8f8;
+  --background: 0 0% 0.4%;
+  --foreground: 0 0% 97%;
+  --card: 210 4% 6%;
+  --card-foreground: 0 0% 97%;
+  --popover: 210 4% 6%;
+  --popover-foreground: 0 0% 97%;
+  --primary: 234 51% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 3% 8%;
+  --secondary-foreground: 0 0% 97%;
+  --muted: 210 3% 8%;
+  --muted-foreground: 220 14% 83%;
+  --accent-color: 210 3% 8%;
+  --accent-foreground: 0 0% 97%;
+  --destructive: 0 63% 50%;
+  --destructive-foreground: 0 0% 97%;
+  --border: 228 8% 15%;
+  --input: 228 8% 15%;
+  --ring: 234 51% 60%;
+  --radius: 0.5rem;
 }
 
 body {
-  background-color: var(--color-canvas);
-  color: var(--color-ink);
+  background-color: #010102;
+  color: #f7f8f8;
 }
