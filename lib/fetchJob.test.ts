@@ -38,6 +38,29 @@ const TABLE_LAYOUT_HTML = `
 </html>
 `;
 
+// Readability strips this entirely (empirically verified: `<footer>` combined with a
+// class matching its unlikely-candidate regex — "sidebar" — causes `reader.parse()` to
+// return null), while html-to-text has no article-detection heuristics and converts the
+// raw markup regardless of the wrapping tag, producing genuinely usable output. This is
+// the fixture that actually exercises `extractWithHtmlToText`'s success path.
+const SIDEBAR_WIDGET_HTML = `
+<!DOCTYPE html>
+<html>
+  <head><title>Job Posting</title></head>
+  <body>
+    <footer class="sidebar-widget">
+      <ul>
+        <li>Title: Senior Backend Engineer</li>
+        <li>Company: Acme Corp</li>
+        <li>Location: Remote, US only</li>
+        <li>Team: Payments Platform Infrastructure</li>
+        <li>Salary: $160,000 - $190,000 annually plus equity</li>
+      </ul>
+    </footer>
+  </body>
+</html>
+`;
+
 describe('fetchAndExtractText', () => {
   it('extracts readable text via Readability from an article-shaped page', async () => {
     global.fetch = vi.fn().mockResolvedValue({
@@ -52,7 +75,10 @@ describe('fetchAndExtractText', () => {
     expect(text.length).toBeGreaterThan(200);
   });
 
-  it('falls back to html-to-text for a non-article-shaped page', async () => {
+  it('extracts readable text via Readability from a table-shaped page', async () => {
+    // Note: despite the table layout, Readability's own algorithm succeeds here (it
+    // returns ~335 chars of usable text from the table's cell content), so this test
+    // does NOT exercise the html-to-text fallback — see the next test for that.
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       text: async () => TABLE_LAYOUT_HTML,
@@ -63,6 +89,19 @@ describe('fetchAndExtractText', () => {
     expect(text).toContain('Senior Backend Engineer');
     expect(text).toContain('Acme Corp');
     expect(text).toContain('payments platform team');
+  });
+
+  it('falls back to html-to-text when Readability finds no usable article content', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => SIDEBAR_WIDGET_HTML,
+    }) as unknown as typeof fetch;
+
+    const text = await fetchAndExtractText('https://acme.example/jobs/42');
+
+    expect(text).toContain('Senior Backend Engineer');
+    expect(text).toContain('Acme Corp');
+    expect(text).toContain('Payments Platform Infrastructure');
   });
 
   it('throws FetchBlockedError when the HTTP response is not ok', async () => {
