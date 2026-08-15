@@ -21,7 +21,7 @@ vi.mock('@/lib/openrouter', () => ({
 }));
 
 import { callOpenRouter } from '@/lib/openrouter';
-import { POST } from './route';
+import { POST, PATCH } from './route';
 
 function cleanupDbFile(p: string) {
   for (const suffix of ['', '-journal', '-wal', '-shm']) {
@@ -213,5 +213,62 @@ describe('POST /api/jobs/[id]/kit', () => {
     expect(json.partial).toBe(true);
     expect(json.errors.resume_bullets).toBeTruthy();
     expect(json.kit.resumeBullets).toBeNull();
+  });
+});
+
+describe('PATCH /api/jobs/[id]/kit', () => {
+  it('saves an edited plain-text field', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'cover_letter', value: 'Edited cover letter text' }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.kit.coverLetter).toBe('Edited cover letter text');
+  });
+
+  it('saves an edited array field', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'resume_bullets', value: ['Edited bullet one', 'Edited bullet two'] }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.kit.resumeBullets).toEqual(['Edited bullet one', 'Edited bullet two']);
+  });
+
+  it('returns 400 for an unknown field', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'not_a_field', value: 'x' }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 for a missing job', async () => {
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/9999/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'cover_letter', value: 'x' }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(9999)
+    );
+    expect(res.status).toBe(404);
   });
 });

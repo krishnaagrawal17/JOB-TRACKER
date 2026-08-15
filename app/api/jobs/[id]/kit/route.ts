@@ -130,3 +130,52 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 
   return NextResponse.json({ kit, partial, errors });
 }
+
+const EDITABLE_FIELDS: KitField[] = ['cover_letter', 'resume_bullets', 'interview_questions', 'company_brief'];
+
+interface PatchKitRequestBody {
+  field?: unknown;
+  value?: unknown;
+}
+
+export async function PATCH(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const { id } = await params;
+  const jobId = Number(id);
+  if (!Number.isInteger(jobId)) {
+    return NextResponse.json({ error: 'Invalid job id.' }, { status: 400 });
+  }
+
+  const db = getDb();
+  const job = getJob(db, jobId);
+  if (!job) {
+    return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
+  }
+
+  const body = (await request.json()) as PatchKitRequestBody;
+  if (typeof body.field !== 'string' || !EDITABLE_FIELDS.includes(body.field as KitField)) {
+    return NextResponse.json({ error: 'field must be one of: ' + EDITABLE_FIELDS.join(', ') }, { status: 400 });
+  }
+
+  const field = body.field as KitField;
+  const isArrayField = field === 'resume_bullets' || field === 'interview_questions';
+
+  if (isArrayField) {
+    if (!Array.isArray(body.value) || !body.value.every((v) => typeof v === 'string')) {
+      return NextResponse.json({ error: 'value must be an array of strings for this field.' }, { status: 400 });
+    }
+  } else if (typeof body.value !== 'string') {
+    return NextResponse.json({ error: 'value must be a string for this field.' }, { status: 400 });
+  }
+
+  const existingKit = getKit(db, jobId);
+  const model = field === 'company_brief' ? existingKit?.modelWeb ?? WEB_MODEL_SLUG : existingKit?.modelText ?? TEXT_MODEL_SLUG;
+
+  const kit = upsertKitField(db, {
+    jobId,
+    field,
+    value: isArrayField ? JSON.stringify(body.value) : (body.value as string),
+    model,
+  });
+
+  return NextResponse.json({ kit });
+}
