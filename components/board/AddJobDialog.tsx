@@ -33,6 +33,7 @@ export default function AddJobDialog({ open, onOpenChange, onJobCreated }: AddJo
   const [rawText, setRawText] = useState('');
   const [extraFields, setExtraFields] = useState<Record<string, string> | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
@@ -79,37 +80,47 @@ export default function AddJobDialog({ open, onOpenChange, onJobCreated }: AddJo
       setRawText(json.rawText);
       setExtraFields(json.extracted.extraFields ?? null);
       setStep('preview');
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
     } finally {
       setIsExtracting(false);
     }
   }
 
   async function handleConfirm() {
+    if (isCreating) return;
     setError(null);
-    const res = await fetch('/api/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: formValues.title,
-        company: formValues.company,
-        location: formValues.location,
-        salary: formValues.salary,
-        description: formValues.description,
-        sourceUrl: formValues.sourceUrl,
-        rawInput: rawText,
-        extraFields,
-      }),
-    });
-    const json = await res.json();
+    setIsCreating(true);
+    try {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formValues.title,
+          company: formValues.company,
+          location: formValues.location,
+          salary: formValues.salary,
+          description: formValues.description,
+          sourceUrl: formValues.sourceUrl,
+          rawInput: rawText,
+          extraFields,
+        }),
+      });
+      const json = await res.json();
 
-    if (!res.ok) {
-      setError(json.error ?? 'Could not create the job.');
-      return;
+      if (!res.ok) {
+        setError(json.error ?? 'Could not create the job.');
+        return;
+      }
+
+      onJobCreated(json.job);
+      reset();
+      onOpenChange(false);
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setIsCreating(false);
     }
-
-    onJobCreated(json.job);
-    reset();
-    onOpenChange(false);
   }
 
   return (
@@ -163,12 +174,14 @@ export default function AddJobDialog({ open, onOpenChange, onJobCreated }: AddJo
         {step === 'preview' && (
           <div className="flex flex-col gap-sm">
             {error && <p className="text-body-sm text-red-400">{error}</p>}
-            <ExtractedJobForm
-              value={formValues}
-              onChange={setFormValues}
-              onSubmit={handleConfirm}
-              submitLabel="Add Job"
-            />
+            <fieldset disabled={isCreating} className="m-0 flex flex-col gap-sm border-0 p-0">
+              <ExtractedJobForm
+                value={formValues}
+                onChange={setFormValues}
+                onSubmit={handleConfirm}
+                submitLabel={isCreating ? 'Adding...' : 'Add Job'}
+              />
+            </fieldset>
           </div>
         )}
       </DialogContent>
