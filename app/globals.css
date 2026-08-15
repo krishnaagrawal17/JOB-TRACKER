@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-canvas: #010102;
+  --color-ink: #f7f8f8;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+}

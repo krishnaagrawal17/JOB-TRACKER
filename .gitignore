@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 .DS_Store
+.next
+.env.local
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
