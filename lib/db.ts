@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import type { Job, Stage } from './types';
+import type { Job, JobKit, Profile, Stage } from './types';
 
 export type Db = InstanceType<typeof Database>;
 
@@ -244,4 +244,144 @@ export function updateJob(db: Db, id: number, input: UpdateJobInput): Job | unde
 
 export function deleteJob(db: Db, id: number): void {
   db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+}
+
+interface ProfileRow {
+  id: 1;
+  resume_text: string | null;
+  resume_filename: string | null;
+  resume_uploaded_at: string | null;
+  about_me: string | null;
+  updated_at: string;
+}
+
+function rowToProfile(row: ProfileRow): Profile {
+  return {
+    id: 1,
+    resumeText: row.resume_text,
+    resumeFilename: row.resume_filename,
+    resumeUploadedAt: row.resume_uploaded_at,
+    aboutMe: row.about_me,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getProfile(db: Db): Profile | undefined {
+  const row = db.prepare('SELECT * FROM profile WHERE id = 1').get() as ProfileRow | undefined;
+  return row ? rowToProfile(row) : undefined;
+}
+
+export interface UpsertProfileInput {
+  resumeText?: string | null;
+  resumeFilename?: string | null;
+  resumeUploadedAt?: string | null;
+  aboutMe?: string | null;
+}
+
+export function upsertProfile(db: Db, input: UpsertProfileInput): Profile {
+  const now = new Date().toISOString();
+  const existing = getProfile(db);
+
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO profile (id, resume_text, resume_filename, resume_uploaded_at, about_me, updated_at)
+       VALUES (1, @resumeText, @resumeFilename, @resumeUploadedAt, @aboutMe, @now)`
+    ).run({
+      resumeText: input.resumeText ?? null,
+      resumeFilename: input.resumeFilename ?? null,
+      resumeUploadedAt: input.resumeUploadedAt ?? null,
+      aboutMe: input.aboutMe ?? null,
+      now,
+    });
+  } else {
+    const fieldMap: Record<string, unknown> = {};
+    if (input.resumeText !== undefined) fieldMap.resume_text = input.resumeText;
+    if (input.resumeFilename !== undefined) fieldMap.resume_filename = input.resumeFilename;
+    if (input.resumeUploadedAt !== undefined) fieldMap.resume_uploaded_at = input.resumeUploadedAt;
+    if (input.aboutMe !== undefined) fieldMap.about_me = input.aboutMe;
+
+    const columns = Object.keys(fieldMap);
+    if (columns.length > 0) {
+      const setClause = columns.map((col) => `${col} = @${col}`).join(', ');
+      db.prepare(`UPDATE profile SET ${setClause}, updated_at = @now WHERE id = 1`).run({ ...fieldMap, now });
+    }
+  }
+
+  return getProfile(db)!;
+}
+
+export type KitField = 'cover_letter' | 'resume_bullets' | 'interview_questions' | 'company_brief';
+
+export interface UpsertKitFieldInput {
+  jobId: number;
+  field: KitField;
+  /** Pre-serialized value: plain text for cover_letter/company_brief, JSON.stringify'd array for resume_bullets/interview_questions. */
+  value: string;
+  model: string;
+  /** Citation URLs — only meaningful when field is 'company_brief'. */
+  sources?: string[];
+}
+
+interface JobKitRow {
+  job_id: number;
+  cover_letter: string | null;
+  cover_letter_generated_at: string | null;
+  resume_bullets: string | null;
+  resume_bullets_generated_at: string | null;
+  interview_questions: string | null;
+  interview_questions_generated_at: string | null;
+  company_brief: string | null;
+  company_brief_generated_at: string | null;
+  company_brief_sources: string | null;
+  model_text: string | null;
+  model_web: string | null;
+}
+
+function rowToJobKit(row: JobKitRow): JobKit {
+  return {
+    jobId: row.job_id,
+    coverLetter: row.cover_letter,
+    coverLetterGeneratedAt: row.cover_letter_generated_at,
+    resumeBullets: row.resume_bullets ? JSON.parse(row.resume_bullets) : null,
+    resumeBulletsGeneratedAt: row.resume_bullets_generated_at,
+    interviewQuestions: row.interview_questions ? JSON.parse(row.interview_questions) : null,
+    interviewQuestionsGeneratedAt: row.interview_questions_generated_at,
+    companyBrief: row.company_brief,
+    companyBriefGeneratedAt: row.company_brief_generated_at,
+    companyBriefSources: row.company_brief_sources ? JSON.parse(row.company_brief_sources) : null,
+    modelText: row.model_text,
+    modelWeb: row.model_web,
+  };
+}
+
+export function getKit(db: Db, jobId: number): JobKit | undefined {
+  const row = db.prepare('SELECT * FROM job_kits WHERE job_id = ?').get(jobId) as JobKitRow | undefined;
+  return row ? rowToJobKit(row) : undefined;
+}
+
+export function upsertKitField(db: Db, input: UpsertKitFieldInput): JobKit {
+  db.prepare('INSERT OR IGNORE INTO job_kits (job_id) VALUES (?)').run(input.jobId);
+
+  const now = new Date().toISOString();
+
+  if (input.field === 'company_brief') {
+    db.prepare(
+      `UPDATE job_kits
+       SET company_brief = @value, company_brief_generated_at = @now, company_brief_sources = @sources, model_web = @model
+       WHERE job_id = @jobId`
+    ).run({
+      value: input.value,
+      now,
+      sources: input.sources ? JSON.stringify(input.sources) : null,
+      model: input.model,
+      jobId: input.jobId,
+    });
+  } else {
+    const column = input.field;
+    db.prepare(
+      `UPDATE job_kits SET ${column} = @value, ${column}_generated_at = @now, model_text = @model WHERE job_id = @jobId`
+    ).run({ value: input.value, now, model: input.model, jobId: input.jobId });
+  }
+
+  return getKit(db, input.jobId)!;
 }

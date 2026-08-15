@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { createDb, createJob, getJobs, getJob, updateJob, deleteJob, type Db } from './db';
+import { createDb, createJob, getJobs, getJob, updateJob, deleteJob, getProfile, upsertProfile, getKit, upsertKitField, type Db } from './db';
 
 let db: Db;
 let dbPath: string;
@@ -158,5 +158,85 @@ describe('deleteJob', () => {
 
     const kitRow = db.prepare('SELECT * FROM job_kits WHERE job_id = ?').get(job.id);
     expect(kitRow).toBeUndefined();
+  });
+});
+
+describe('getProfile / upsertProfile', () => {
+  it('returns undefined before any profile row exists', () => {
+    expect(getProfile(db)).toBeUndefined();
+  });
+
+  it('creates the single profile row on first upsert', () => {
+    const profile = upsertProfile(db, { resumeText: 'My resume text', aboutMe: 'I like building things.' });
+    expect(profile.id).toBe(1);
+    expect(profile.resumeText).toBe('My resume text');
+    expect(profile.aboutMe).toBe('I like building things.');
+    expect(profile.updatedAt).toBeTruthy();
+  });
+
+  it('updates only the fields provided on a later upsert', () => {
+    upsertProfile(db, { resumeText: 'Original resume', aboutMe: 'Original about' });
+    const updated = upsertProfile(db, { aboutMe: 'Updated about' });
+    expect(updated.resumeText).toBe('Original resume');
+    expect(updated.aboutMe).toBe('Updated about');
+  });
+
+  it('records resume filename and upload timestamp', () => {
+    const profile = upsertProfile(db, {
+      resumeText: 'Extracted text',
+      resumeFilename: 'resume.pdf',
+      resumeUploadedAt: '2026-08-15T00:00:00.000Z',
+    });
+    expect(profile.resumeFilename).toBe('resume.pdf');
+    expect(profile.resumeUploadedAt).toBe('2026-08-15T00:00:00.000Z');
+  });
+});
+
+describe('getKit / upsertKitField', () => {
+  it('returns undefined before any kit row exists for a job', () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    expect(getKit(db, job.id)).toBeUndefined();
+  });
+
+  it('creates the kit row on first field upsert and sets model_text', () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const kit = upsertKitField(db, { jobId: job.id, field: 'cover_letter', value: 'Dear hiring manager...', model: 'text-model-slug' });
+    expect(kit.jobId).toBe(job.id);
+    expect(kit.coverLetter).toBe('Dear hiring manager...');
+    expect(kit.coverLetterGeneratedAt).toBeTruthy();
+    expect(kit.modelText).toBe('text-model-slug');
+  });
+
+  it('does not clobber a previously written field when upserting a different field', () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    upsertKitField(db, { jobId: job.id, field: 'cover_letter', value: 'Cover letter text', model: 'text-model-slug' });
+    const kit = upsertKitField(db, { jobId: job.id, field: 'resume_bullets', value: JSON.stringify(['Led X', 'Built Y']), model: 'text-model-slug' });
+    expect(kit.coverLetter).toBe('Cover letter text');
+    expect(kit.resumeBullets).toEqual(['Led X', 'Built Y']);
+  });
+
+  it('stores company_brief under model_web with parsed sources', () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const kit = upsertKitField(db, {
+      jobId: job.id,
+      field: 'company_brief',
+      value: 'Acme is a company that...',
+      model: 'web-model-slug',
+      sources: ['https://acme.example/about'],
+    });
+    expect(kit.companyBrief).toBe('Acme is a company that...');
+    expect(kit.modelWeb).toBe('web-model-slug');
+    expect(kit.companyBriefSources).toEqual(['https://acme.example/about']);
+  });
+
+  it('parses interview_questions back into an array', () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const kit = upsertKitField(db, {
+      jobId: job.id,
+      field: 'interview_questions',
+      value: JSON.stringify(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']),
+      model: 'text-model-slug',
+    });
+    expect(kit.interviewQuestions).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
   });
 });
