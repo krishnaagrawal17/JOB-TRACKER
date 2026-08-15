@@ -34,6 +34,9 @@ export default function ResumeUpload({ onExtracted }: ResumeUploadProps) {
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    // Reset the input so selecting the same file again (e.g. after a failed
+    // upload) still fires a change event instead of being a silent no-op.
+    e.target.value = '';
     if (file) handleFile(file);
   }
 
@@ -65,6 +68,7 @@ export default function ResumeUpload({ onExtracted }: ResumeUploadProps) {
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           aria-label="Upload resume"
           className="hidden"
+          disabled={isUploading}
           onChange={handleChange}
         />
       </label>

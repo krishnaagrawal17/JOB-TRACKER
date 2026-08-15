@@ -139,4 +139,92 @@ describe('ProfilePage', () => {
     resolvePatch({ ok: true, json: async () => ({ profile: { resumeText: '', aboutMe: '' } }) });
     await waitFor(() => expect(screen.getByText('saving:false')).toBeInTheDocument());
   });
+
+  it('shows the server error message, and withholds the form, when the initial load comes back non-ok', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'boom' }),
+    }) as unknown as typeof fetch;
+
+    render(<ProfilePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('boom')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('mock-profile-form')).not.toBeInTheDocument();
+  });
+
+  it('shows a network-failure message, and withholds the form, when the initial load rejects', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+
+    render(<ProfilePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not reach the server/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('mock-profile-form')).not.toBeInTheDocument();
+  });
+
+  it('lets the user retry a failed load, and shows the form with the loaded data once the retry succeeds', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'boom' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ profile: { resumeText: 'Stored', aboutMe: '' } }) });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProfilePage />);
+    await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.getByText('resume:Stored')).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the values the user has in the form after a successful save, instead of reverting them to the server echo', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ profile: { resumeText: 'Server echo, should be ignored', aboutMe: '' } }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ profile: null }) });
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProfilePage />);
+    await waitFor(() => expect(screen.getByText('mock-profile-form')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('trigger-change'));
+    await waitFor(() => expect(screen.getByText('resume:Edited')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('trigger-save'));
+
+    await waitFor(() => expect(screen.getByText('saving:false')).toBeInTheDocument());
+    expect(screen.getByText('resume:Edited')).toBeInTheDocument();
+  });
+
+  it('PATCHes the edited values, not the originally loaded ones, when the user edits before saving', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return Promise.resolve({ ok: true, json: async () => ({ profile: { resumeText: 'Edited', aboutMe: '' } }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ profile: null }) });
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProfilePage />);
+    await waitFor(() => expect(screen.getByText('mock-profile-form')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('trigger-change'));
+    fireEvent.click(screen.getByText('trigger-save'));
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse((patchCall as [string, RequestInit])[1].body as string);
+      expect(body).toEqual({ resumeText: 'Edited', aboutMe: '' });
+    });
+  });
 });

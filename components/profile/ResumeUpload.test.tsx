@@ -92,4 +92,33 @@ describe('ResumeUpload', () => {
     });
     await waitFor(() => expect(screen.queryByText('Uploading...')).not.toBeInTheDocument());
   });
+
+  it('disables the file input while an upload is in flight and resets its value so the same file can be re-selected', async () => {
+    let resolveUpload: (value: unknown) => void = () => {};
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ResumeUpload onExtracted={vi.fn()} />);
+    const input = screen.getByLabelText('Upload resume') as HTMLInputElement;
+    const file = new File(['fake pdf bytes'], 'resume.pdf', { type: 'application/pdf' });
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    // The input's value is cleared synchronously by the change handler, before
+    // the upload even resolves, so picking the same file again later still fires
+    // a change event instead of being a silent no-op.
+    expect(input.value).toBe('');
+    await waitFor(() => expect(input).toBeDisabled());
+
+    resolveUpload({
+      ok: true,
+      json: async () => ({ profile: { resumeText: 'text', resumeFilename: 'resume.pdf' } }),
+    });
+    await waitFor(() => expect(input).not.toBeDisabled());
+  });
 });
