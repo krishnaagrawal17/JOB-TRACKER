@@ -13,9 +13,10 @@ interface ColumnProps {
   stage: Stage;
   jobs: Job[];
   onJobClick: (job: Job) => void;
+  renderJob?: (job: Job) => React.ReactNode;
 }
 
-export default function Column({ stage, jobs, onJobClick }: ColumnProps) {
+export default function Column({ stage, jobs, onJobClick, renderJob }: ColumnProps) {
   return (
     <div className="flex w-72 flex-shrink-0 flex-col rounded-lg border border-hairline bg-surface-1 p-sm">
       <div className="mb-sm flex items-center justify-between px-xs">
@@ -24,7 +25,7 @@ export default function Column({ stage, jobs, onJobClick }: ColumnProps) {
       </div>
       <div className="flex flex-col gap-xs">
         {jobs.map((job) => (
-          <JobCard key={job.id} job={job} onClick={() => onJobClick(job)} />
+          <div key={job.id}>{renderJob ? renderJob(job) : <JobCard job={job} onClick={() => onJobClick(job)} />}</div>
         ))}
       </div>
     </div>

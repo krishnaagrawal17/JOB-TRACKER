@@ -44,3 +44,18 @@ describe('Column', () => {
     expect(onJobClick).toHaveBeenCalledWith(jobB);
   });
 });
+
+describe('Column renderJob override', () => {
+  it('uses renderJob instead of the default JobCard when provided', () => {
+    const job = makeJob({ id: 1, title: 'Custom Rendered Job' });
+    render(
+      <Column
+        stage="wishlist"
+        jobs={[job]}
+        onJobClick={() => {}}
+        renderJob={(j) => <div>Custom wrapper for {j.title}</div>}
+      />
+    );
+    expect(screen.getByText('Custom wrapper for Custom Rendered Job')).toBeInTheDocument();
+  });
+});
