@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export type Stage = 'wishlist' | 'applied' | 'interviewing' | 'offer' | 'rejected';
 
 export const STAGES: readonly Stage[] = ['wishlist', 'applied', 'interviewing', 'offer', 'rejected'];
@@ -41,3 +43,15 @@ export interface Profile {
   aboutMe: string | null;
   updatedAt: string;
 }
+
+export const ExtractedJobSchema = z.object({
+  title: z.string().nullable().default(null),
+  company: z.string().nullable().default(null),
+  location: z.string().nullable().default(null),
+  salary: z.string().nullable().default(null),
+  description: z.string().nullable().default(null),
+  sourceUrl: z.string().nullable().default(null),
+  extraFields: z.record(z.string()).default({}),
+});
+
+export type ExtractedJob = z.infer<typeof ExtractedJobSchema>;
