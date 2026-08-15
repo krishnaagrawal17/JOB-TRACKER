@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getDb, getJob, getProfile, upsertKitField, getKit, type KitField } from '@/lib/db';
+import { getDb, getJob, getProfile, upsertKitField, editKitField, getKit, type KitField } from '@/lib/db';
 import { callOpenRouter } from '@/lib/openrouter';
 import {
   buildCoverLetterPrompt,
@@ -159,23 +159,24 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
   const field = body.field as KitField;
   const isArrayField = field === 'resume_bullets' || field === 'interview_questions';
 
+  let value: string;
   if (isArrayField) {
-    if (!Array.isArray(body.value) || !body.value.every((v) => typeof v === 'string')) {
+    const parsed = StringArraySchema.safeParse(body.value);
+    if (!parsed.success) {
       return NextResponse.json({ error: 'value must be an array of strings for this field.' }, { status: 400 });
     }
-  } else if (typeof body.value !== 'string') {
-    return NextResponse.json({ error: 'value must be a string for this field.' }, { status: 400 });
+    value = JSON.stringify(parsed.data);
+  } else {
+    if (typeof body.value !== 'string') {
+      return NextResponse.json({ error: 'value must be a string for this field.' }, { status: 400 });
+    }
+    value = body.value;
   }
 
-  const existingKit = getKit(db, jobId);
-  const model = field === 'company_brief' ? existingKit?.modelWeb ?? WEB_MODEL_SLUG : existingKit?.modelText ?? TEXT_MODEL_SLUG;
-
-  const kit = upsertKitField(db, {
-    jobId,
-    field,
-    value: isArrayField ? JSON.stringify(body.value) : (body.value as string),
-    model,
-  });
+  // editKitField (not upsertKitField) is deliberate: a human edit must not overwrite
+  // <field>_generated_at, model_text/model_web, or company_brief_sources — those describe
+  // how/when the model generated the content, not when it was last touched by a person.
+  const kit = editKitField(db, { jobId, field, value });
 
   return NextResponse.json({ kit });
 }

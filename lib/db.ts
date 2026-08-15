@@ -385,3 +385,26 @@ export function upsertKitField(db: Db, input: UpsertKitFieldInput): JobKit {
 
   return getKit(db, input.jobId)!;
 }
+
+export interface EditKitFieldInput {
+  jobId: number;
+  field: KitField;
+  /** Pre-serialized value: plain text for cover_letter/company_brief, JSON.stringify'd array for resume_bullets/interview_questions. */
+  value: string;
+}
+
+/** Persists a human edit to an already-generated kit field without touching the
+ * columns that describe how the content was generated (`<field>_generated_at`,
+ * `model_text`/`model_web`, `company_brief_sources`) — those mean "when/how the
+ * model produced this" and must not move just because a person edited the text. */
+export function editKitField(db: Db, input: EditKitFieldInput): JobKit {
+  db.prepare('INSERT OR IGNORE INTO job_kits (job_id) VALUES (?)').run(input.jobId);
+
+  const column = input.field;
+  db.prepare(`UPDATE job_kits SET ${column} = @value WHERE job_id = @jobId`).run({
+    value: input.value,
+    jobId: input.jobId,
+  });
+
+  return getKit(db, input.jobId)!;
+}

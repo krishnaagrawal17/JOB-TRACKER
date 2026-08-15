@@ -75,4 +75,23 @@ describe('KitPanel', () => {
     });
     expect(global.fetch).toHaveBeenCalledWith('/api/jobs/1/kit', { method: 'POST' });
   });
+
+  it('guards against a second Generate request firing while one is already in flight (regression: IMPORTANT 5)', async () => {
+    let resolvePost: (value: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      resolvePost = resolve;
+    });
+    global.fetch = vi.fn().mockReturnValue(pending) as unknown as typeof fetch;
+
+    render(<KitPanel jobId={1} kit={null} />);
+    const button = screen.getByRole('button', { name: 'Generate Kit' });
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    resolvePost({ ok: true, json: async () => ({ kit: null, partial: false, errors: {} }) });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Generate Kit' })).not.toBeDisabled());
+  });
 });

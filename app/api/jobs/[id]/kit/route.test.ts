@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { NextRequest } from 'next/server';
-import { createDb, createJob, upsertProfile, type Db } from '@/lib/db';
+import { createDb, createJob, upsertProfile, upsertKitField, type Db } from '@/lib/db';
 import { TEXT_MODEL_SLUG, WEB_MODEL_SLUG } from '@/lib/models';
 
 let db: Db;
@@ -270,5 +270,96 @@ describe('PATCH /api/jobs/[id]/kit', () => {
       makeParams(9999)
     );
     expect(res.status).toBe(404);
+  });
+
+  it('returns 400 when value is a string for an array field', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'resume_bullets', value: 'not an array' }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when value is an array for a plain-text field', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'cover_letter', value: ['a', 'b'] }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('preserves company_brief_sources when the brief is edited (regression: CRITICAL 1)', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    upsertKitField(db, {
+      jobId: job.id,
+      field: 'company_brief',
+      value: 'Original brief',
+      model: WEB_MODEL_SLUG,
+      sources: ['https://acme.example/about'],
+    });
+
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'company_brief', value: 'Edited brief' }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.kit.companyBrief).toBe('Edited brief');
+    expect(json.kit.companyBriefSources).toEqual(['https://acme.example/about']);
+  });
+
+  it('does not update <field>_generated_at when a field is edited (regression: IMPORTANT 2)', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+      const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+      upsertKitField(db, { jobId: job.id, field: 'cover_letter', value: 'Original', model: TEXT_MODEL_SLUG });
+
+      vi.setSystemTime(new Date('2020-01-02T00:00:00.000Z'));
+      const res = await PATCH(
+        new NextRequest('http://localhost/api/jobs/1/kit', {
+          method: 'PATCH',
+          body: JSON.stringify({ field: 'cover_letter', value: 'Edited' }),
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        makeParams(job.id)
+      );
+      const json = await res.json();
+      expect(json.kit.coverLetter).toBe('Edited');
+      expect(json.kit.coverLetterGeneratedAt).toBe('2020-01-01T00:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves the generation-time model slug when a field is later edited (regression: IMPORTANT 6)', async () => {
+    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    upsertKitField(db, { jobId: job.id, field: 'resume_bullets', value: JSON.stringify(['A']), model: TEXT_MODEL_SLUG });
+
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/jobs/1/kit', {
+        method: 'PATCH',
+        body: JSON.stringify({ field: 'resume_bullets', value: ['B', 'C'] }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      makeParams(job.id)
+    );
+    const json = await res.json();
+    expect(json.kit.resumeBullets).toEqual(['B', 'C']);
+    expect(json.kit.modelText).toBe(TEXT_MODEL_SLUG);
   });
 });
