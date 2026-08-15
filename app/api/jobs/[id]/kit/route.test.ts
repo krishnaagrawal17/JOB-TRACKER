@@ -138,4 +138,80 @@ describe('POST /api/jobs/[id]/kit', () => {
     expect(briefCall?.[0].plugins).toEqual([{ id: 'web', max_results: 5 }]);
     expect(coverLetterCall?.[0].plugins).toBeUndefined();
   });
+
+  it('rejects a malformed resume_bullets response (object instead of array) without persisting it', async () => {
+    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+
+    vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
+      const prompt = messages[0].content;
+      if (prompt.includes('Write a tailored, professional cover letter')) return 'Dear hiring manager...';
+      if (prompt.includes('Rewrite 4-6 resume bullet points')) return JSON.stringify({ bullets: ['Bullet one', 'Bullet two'] });
+      if (prompt.includes('predict the five interview questions')) return JSON.stringify(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
+      if (prompt.includes('Write a concise, one-page company brief')) return 'Acme is a fintech company...';
+      throw new Error(`unexpected prompt: ${prompt}`);
+    });
+
+    const res = await POST(makeRequest(), makeParams(job.id));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    expect(json.partial).toBe(true);
+    expect(json.errors.resume_bullets).toBeTruthy();
+    expect(typeof json.errors.resume_bullets).toBe('string');
+    expect(json.kit.resumeBullets).toBeNull();
+    // The other three fields still succeeded and were persisted independently.
+    expect(json.kit.coverLetter).toBe('Dear hiring manager...');
+    expect(json.kit.interviewQuestions).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
+    expect(json.kit.companyBrief).toBe('Acme is a fintech company...');
+  });
+
+  it('rejects a malformed interview_questions response (array of numbers) without persisting it', async () => {
+    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+
+    vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
+      const prompt = messages[0].content;
+      if (prompt.includes('Write a tailored, professional cover letter')) return 'Dear hiring manager...';
+      if (prompt.includes('Rewrite 4-6 resume bullet points')) return JSON.stringify(['Bullet one', 'Bullet two']);
+      if (prompt.includes('predict the five interview questions')) return JSON.stringify([1, 2, 3, 4, 5]);
+      if (prompt.includes('Write a concise, one-page company brief')) return 'Acme is a fintech company...';
+      throw new Error(`unexpected prompt: ${prompt}`);
+    });
+
+    const res = await POST(makeRequest(), makeParams(job.id));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    expect(json.partial).toBe(true);
+    expect(json.errors.interview_questions).toBeTruthy();
+    expect(typeof json.errors.interview_questions).toBe('string');
+    expect(json.kit.interviewQuestions).toBeNull();
+    // The other three fields still succeeded and were persisted independently.
+    expect(json.kit.coverLetter).toBe('Dear hiring manager...');
+    expect(json.kit.resumeBullets).toEqual(['Bullet one', 'Bullet two']);
+    expect(json.kit.companyBrief).toBe('Acme is a fintech company...');
+  });
+
+  it('rejects a resume_bullets response that is not valid JSON at all', async () => {
+    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+
+    vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
+      const prompt = messages[0].content;
+      if (prompt.includes('Write a tailored, professional cover letter')) return 'Dear hiring manager...';
+      if (prompt.includes('Rewrite 4-6 resume bullet points')) return '```json\n["Bullet one"]\n```';
+      if (prompt.includes('predict the five interview questions')) return JSON.stringify(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
+      if (prompt.includes('Write a concise, one-page company brief')) return 'Acme is a fintech company...';
+      throw new Error(`unexpected prompt: ${prompt}`);
+    });
+
+    const res = await POST(makeRequest(), makeParams(job.id));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    expect(json.partial).toBe(true);
+    expect(json.errors.resume_bullets).toBeTruthy();
+    expect(json.kit.resumeBullets).toBeNull();
+  });
 });

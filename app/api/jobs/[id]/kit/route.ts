@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getDb, getJob, getProfile, upsertKitField, getKit, type KitField } from '@/lib/db';
 import { callOpenRouter } from '@/lib/openrouter';
 import {
@@ -14,6 +15,28 @@ export const runtime = 'nodejs';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+const StringArraySchema = z.array(z.string());
+
+/** Parses and shape-validates a JSON string-array response from the LLM.
+ * Throws (rather than returning a lying `as string[]` cast) so the caller's
+ * task promise rejects and routes into the existing Promise.allSettled
+ * partial-failure handling instead of persisting malformed data. */
+function parseStringArrayResponse(content: string, fieldLabel: string): string[] {
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(content);
+  } catch {
+    throw new Error(`Model returned invalid JSON for ${fieldLabel}.`);
+  }
+
+  const result = StringArraySchema.safeParse(parsedJson);
+  if (!result.success) {
+    throw new Error(`Model returned an unexpected shape for ${fieldLabel} (expected an array of strings).`);
+  }
+
+  return result.data;
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
@@ -57,7 +80,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           model: TEXT_MODEL_SLUG,
           messages: [{ role: 'user', content: buildBulletsPrompt(job, profile) }],
         });
-        const bullets = JSON.parse(content) as string[];
+        const bullets = parseStringArrayResponse(content, 'resume_bullets');
         upsertKitField(db, { jobId, field: 'resume_bullets', value: JSON.stringify(bullets), model: TEXT_MODEL_SLUG });
       },
     },
@@ -68,7 +91,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           model: TEXT_MODEL_SLUG,
           messages: [{ role: 'user', content: buildQuestionsPrompt(job, profile) }],
         });
-        const questions = JSON.parse(content) as string[];
+        const questions = parseStringArrayResponse(content, 'interview_questions');
         upsertKitField(db, {
           jobId,
           field: 'interview_questions',
