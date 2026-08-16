@@ -15,13 +15,23 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-**Exactly one thing is open: the manual browser walkthrough.** `OPENROUTER_API_KEY` now exists in
-`.env.local`, so nothing blocks it. See the walkthrough order below — it is the only remaining
-verification, and nothing in this app has ever been exercised by a human.
+**Work in flight: single-user authentication, on branch `auth-phase-1`.** Task 1 of 7 is complete
+and reviewed; Tasks 2–7 remain. Resume with `superpowers:subagent-driven-development` against
+`docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
+`.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
+line are done and must not be re-dispatched. **The user's standing preference is to check in after
+each task rather than run continuously.**
 
-The merge decision from the previous session is **resolved**: Phase 1 was merged, and the project
-was then split out into its own standalone repository (see "Where the code lives" — the old
-worktree/`origin` warnings no longer apply and have been removed).
+Auth is being added because the app is going onto a tunnel, which invalidates the local-only
+assumption. Tasks 1–6 leave the app fully usable; **Task 7 is the moment it starts requiring a
+password**, and `npm run set-password` must have been run by then or every request returns 503 by
+design.
+
+Also open, smaller: **push this repo to GitHub** — decided yes, private, but not yet done. Do the
+git-identity fix first (below), because it is far cheaper before a push than after.
+
+**Phase 1 itself is finished, merged, verified, and closed.** The merge decision and the browser
+walkthrough that dominated earlier handoffs are both resolved — see Status.
 
 One reversible decision the user may want to revisit: **citations ship dead** (see below). This is
 now a much better-understood call than it was — a live `web`-plugin request on 2026-08-16 came back
@@ -36,11 +46,14 @@ than deleted at the end of the plan.
 
 ---
 
-**Status: Phase 1 COMPLETE and merged.** All 21 plan tasks done, plus the final whole-branch review
-and its fix wave. Branch **`main`** at `9474159`: **189/189 tests passing across 32 files**,
-`tsc --noEmit` clean, `npm run build` succeeds (9 routes emitted), working tree clean. Phase 1 was
-merged as a fast-forward on 2026-08-16; the branch `job-tracker-phase-1` no longer exists here,
-having been renamed `main` during the repo split.
+**Status: Phase 1 COMPLETE, merged, and VERIFIED BY A HUMAN. Phase 2 (auth) in progress.**
+
+Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix wave, merged to
+`main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
+exists here, having been renamed `main` during the repo split.
+
+Current: branch **`auth-phase-1`** at `86a6597` (1 of 7 auth tasks landed), **201/201 tests passing
+across 33 files**, `tsc --noEmit` clean, working tree clean.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -48,18 +61,25 @@ task-scoped spec+quality review after each, fix loops on findings, controller le
 `Ruling:` lines — every decision made without asking the user, each with its cost-if-wrong. **If
 that workspace is gone, git history plus this file are the record.**
 
-**THE APP HAS STILL NEVER BEEN RUN IN A BROWSER.** Everything below is unit-tested and builds, but
-no human has clicked through it. `.env.local` now holds a real `OPENROUTER_API_KEY` (gitignored, so
-it exists on disk only — a fresh clone will not have it). Recommended walkthrough order, per the
-final review: (1) add a job via **pasted text** — it exercises `response_format`, fence handling,
-and the extraction schema in one shot, and *extraction is itself an LLM call*, so nothing else in
-the app works until it does; (2) drag a card **down** within a column, then reload — the
-highest-risk fixed bug; (3) Generate Kit, and check whether any citations render (see the citations
-note below — expect none, by decision); (4) the rest of the spec's Verification checklist.
+**THE APP HAS NOW BEEN RUN IN A BROWSER AND WORKS.** On 2026-08-16 the user started it, added a
+job, and generated a kit end to end. Verified afterwards by reading the SQLite file directly:
+**1 job, 1 job_kit, 1 profile row persisted** — including across an abrupt process kill, which the
+WAL handled cleanly. `job-tracker.db` is created on first request; `better-sqlite3` loads and
+`initSchema` runs without intervention. This closes the "never exercised by a human" risk that
+dominated every earlier handoff.
 
-Step 1's underlying API behaviour has since been smoke-tested directly against OpenRouter and
-works: `response_format: { type: 'json_object' }` returned bare, parseable JSON with no fence. That
-de-risks the model call but says nothing about the UI path around it, which is still unexercised.
+Also confirmed live in the same session, by direct requests to OpenRouter rather than through the
+UI: `response_format: { type: 'json_object' }` returns bare parseable JSON with no fence, and the
+`web` plugin returns genuinely current grounded content.
+
+**Two items from the original walkthrough list were NOT explicitly confirmed** and are worth doing
+opportunistically, because unit tests cannot cover either: (1) dragging a card **down** within a
+column and reloading — the highest-risk of the three drag bugs fixed at the end of Phase 1, and the
+one whose failure would silently corrupt card order; (2) the remainder of the spec's Verification
+checklist. The user reported the app "working nicely" but did not confirm these specifically.
+
+`.env.local` holds a real `OPENROUTER_API_KEY` and is gitignored, so it exists on disk only — a
+fresh clone will not have it, and neither will anyone who pulls this from GitHub.
 
 **Model slugs are VERIFIED — this is no longer an open risk.** `TEXT_MODEL_SLUG` and
 `WEB_MODEL_SLUG` in `lib/models.ts` are both **`openai/gpt-5.6-luna`** (changed 2026-08-16 from
@@ -99,6 +119,41 @@ this a bounded, well-understood change rather than an unknown: widen the return 
 annotations, and the column, `rowToJobKit` parsing, and `CompanyBriefSection`'s citation `<ul>` are
 all already built and waiting. Still deferred pending the user's product call — but now with
 evidence rather than an assumption behind it.
+
+## Phase 2 — single-user authentication (IN PROGRESS)
+
+Spec: `docs/superpowers/specs/2026-08-16-job-tracker-auth-design.md`
+Plan: `docs/superpowers/plans/2026-08-16-job-tracker-auth.md` (7 TDD tasks)
+Ledger: `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` (git-ignored — **read it before
+resuming**; it records which tasks are done and every ruling made without asking)
+
+**Why:** the app is going onto a Cloudflare-style tunnel so it is reachable from anywhere. That
+directly invalidates the "sole local user" premise behind the accepted SSRF triage in
+`lib/fetchJob.ts`. A password gate makes that premise true again instead of merely assumed.
+
+**Scope, decided with the user and not to be re-litigated:** single-user, not multi-user — one
+password, one board. Friends cannot have their own trackers; multi-user was explicitly considered
+and declined (it needs a `users` table, an owner column on all three tables, and a filter on every
+query). Tunnel, not a VPS, so SQLite keeps working and the Mac must be awake. Hand-rolled rather
+than Auth.js, **zero new dependencies**.
+
+**The constraint that shapes the implementation, and the easiest thing to get wrong:** Next.js
+middleware runs on the **Edge runtime, which has no `node:crypto`**. So `lib/auth/session.ts` uses
+Web Crypto only and is the *sole* auth module middleware may import, while `lib/auth/password.ts`
+is Node-only (scrypt) and must never become reachable from it. Both files carry that contract as a
+header comment. A violation fails at runtime, not at build time.
+
+**Task order is deliberate: the gate lands last.** Tasks 1–6 leave the app fully usable. Task 7
+adds `middleware.ts` and is the moment the app starts demanding a password — after which
+`npm run set-password` is mandatory or every request returns 503, by design. There is deliberately
+no `AUTH_ENABLED` flag: an auth system with an off switch is how auth ends up off in production.
+
+**Task 1 (session tokens) is complete** — `86a6597`, reviewed clean after one fix round. The fix
+is worth remembering: the implementation compiled fine under Vitest but failed `tsc --noEmit`
+(`Uint8Array<ArrayBufferLike>` not assignable to `BufferSource`), which would have broken
+`npm run build` for the whole app. **Vitest strips types with esbuild without checking them, so a
+green test run proves nothing about types.** Run `npx tsc --noEmit` as part of verifying every
+remaining task; the controller's own first check missed this by testing but not typechecking.
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
@@ -163,6 +218,26 @@ The split preserved all 41 commits by swapping in a fresh `.git` rather than cop
 kept the gitignored-but-valuable `.env.local` and `.superpowers/` ledger in place. `origin` was
 removed deliberately so this repo cannot push into Leadership. **If you add a remote, create a new,
 empty GitHub repo for the job tracker — do not reuse the Leadership one.**
+
+### Before the first push to GitHub
+
+Decided: **yes, push it, and make it private.** Private because the design docs describe the
+owner's personal job search; it can be flipped public later, which is not reversible in the other
+direction. If it does go public, first rewrite `CLAUDE.md`'s opening line — it describes the
+project as being for "Krishna (non-technical job seeker)", which is not what a hiring manager
+should read alongside the code.
+
+**Fix the git identity first.** Commits are currently authored as
+`krishnaagrawal@Krishnas-MacBook-Air.local`, an address git invented from the machine name.
+GitHub cannot link that to an account, so none of this work would appear on the user's profile —
+which matters, because the user is job hunting and this is a portfolio piece. Setting
+`git config user.email` fixes future commits; the existing ones need a history rewrite, which is
+**clean to do while nothing has been pushed and nobody else has a copy**, and progressively more
+annoying afterwards.
+
+Push safety was verified on 2026-08-16: no `.env.local`, no `*.db` files, and the OpenRouter key
+appears in no tracked file and nowhere in the commit history. `.env.local.example` holds only
+placeholder text.
 
 ## Stack (per the design spec)
 
