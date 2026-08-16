@@ -13,13 +13,57 @@ one-page company brief) is generated via OpenRouter and persisted on the card.
 Full product/architecture detail: `docs/superpowers/specs/2026-08-15-job-tracker-design.md`
 Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026-08-15-job-tracker-phase-1.md`
 
-**Status: planning complete, implementation not yet started.** Design spec brainstormed and
-approved via plan mode, then the 21-task implementation plan was drafted, self-reviewed (spec
-coverage, placeholder scan, type-consistency pass — one real gap found and fixed: `AddJobDialog`
-was dropping `extraFields` on the floor between extraction and job creation), and committed.
-Next decision pending: execute via `superpowers:subagent-driven-development` (fresh subagent per
-task + review checkpoints — the pattern every other project in this workspace used) or
-`superpowers:executing-plans` (inline, batched, with checkpoints).
+**Status: implementation in progress via `superpowers:subagent-driven-development`.** Design spec
+brainstormed and approved via plan mode, then the 21-task implementation plan was drafted,
+self-reviewed (spec coverage, placeholder scan, type-consistency pass — one real gap found and
+fixed: `AddJobDialog` was dropping `extraFields` on the floor between extraction and job
+creation), and committed. Execution started 2026-08-15: fresh implementer subagent per task,
+task-scoped spec+quality review after each, fix loops on findings, controller ledger at
+`.superpowers/sdd/2026-08-15-job-tracker-phase-1/progress.md` (git-ignored — the git history is
+the durable record once the plan finishes).
+
+As of this writing, **Tasks 1-20 of 21 are complete** (full backend/data layer — scaffold, theme,
+types, SQLite, OpenRouter client, all 6 API routes — plus `JobCard`/`Column`/`Board` with dnd-kit
+drag-and-drop, the `AddJobDialog`/`ExtractedJobForm` "Add Job" flow, the job detail page with its
+autosaving kit panel, and the profile page). Verified at Task 20's close: `tsc --noEmit` clean,
+169/169 tests passing across 32 files. Remaining: **Task 21 only** (final wiring + manual
+verification). The user asked to check in after each task rather than running the whole plan
+continuously, so this file's status line will lag slightly behind the ledger between sessions —
+check the ledger or `git log` for the exact current task.
+
+**Nothing is reachable in a browser yet.** The detail page and profile page are built and tested
+but nothing links to them — Task 21's Step 1-5 wiring (top-nav in `app/layout.tsx`, `Board`'s
+`onJobClick` → `/jobs/[id]` in `app/page.tsx`) is what connects them. `npm run build` has also
+never been run on this project; unit tests say nothing about whether the `better-sqlite3` native
+addon survives a production build via `serverExternalPackages`.
+
+**Blocked on a key the user will supply later:** every OpenRouter-dependent path in Task 21's
+manual walkthrough. Note that *extraction itself is an LLM call*, so no job can be created
+through the UI at all without `OPENROUTER_API_KEY` — that blocks exercising the board and detail
+page with real data, not just Generate Kit. The `/api/v1/models` slug check is a public endpoint
+and needs no key; only confirming the `web` plugin returns grounded content does.
+
+**Watch out — Task 21's Step 10 says "Create `CLAUDE.md`"** with generic anti-LLM-mistake
+boilerplate. This file already exists and is the durable cross-session status record. Merge that
+content in as a section; do not let the task overwrite this file.
+
+Four fix-loop rounds so far went beyond a plain implement→review pass and are worth knowing about:
+Task 14 (Generate Kit) needed a fix to zod-validate LLM array output before persisting it (the
+brief's own sample code skipped this); Task 18 needed a fix for unhandled fetch failures and a
+double-submit guard in the primary Add Job flow; Task 19 shipped a real data-loss bug — `PATCH`
+reused `upsertKitField`, the *generation* writer, so the first autosave on the company-brief
+textarea nulled every web-search citation and restamped `*_generated_at` with the edit time (fixed
+by adding a content-only `editKitField` to `lib/db.ts`); Task 20 had the same shape — a failed
+profile load fell through to a blank editable form whose Save wrote empty strings over the stored
+resume (fixed by gating the form behind `loadError`). All are documented with full rulings in the
+SDD ledger.
+
+**A pattern the reviews kept catching:** in Tasks 19 *and* 20, controller-mandated fetch hardening
+shipped with the code correct but a third of it untested — the second time even though the
+dispatch explicitly named it as the prior task's failure. Both were caught in review and closed in
+one fix round, so nothing shipped broken, but if a Phase 2 reuses this plan shape, put the
+hardening tests in the plan's own step list rather than in a controller directive. The directive
+demonstrably doesn't stick.
 
 ## Where the code lives
 
@@ -28,8 +72,8 @@ task + review checkpoints — the pattern every other project in this workspace 
   local `main`, not `origin/main` — the root repo's `origin` remote currently points at an
   unrelated GitHub repo, see the root `CLAUDE.md`'s "Git topology" section before pushing
   anything from here).
-- No app code yet — only `docs/superpowers/specs/` and `docs/superpowers/plans/` exist so far.
-  Task 1 of the plan scaffolds the actual Next.js project.
+- App code now exists under `app/`, `components/`, `lib/` per Tasks 1-20 (see Status above for
+  what's implemented vs. remaining) — this is no longer just `docs/`.
 
 ## Stack (per the design spec)
 
@@ -52,3 +96,28 @@ dark-only token system Krishna supplied — see the spec for exact hex/spacing/r
 - Job deletion is a hard delete with a confirm dialog, no separate archive state.
 - Resume paste and resume upload feed the same editable text field, not two separate values.
 - V1 regenerates the whole kit at once — no per-section regenerate yet.
+
+## Deferred minors awaiting the whole-branch review
+
+Parked deliberately with rulings in the SDD ledger — real, but not worth a fix round mid-plan.
+Task 21's final review is pointed at this list to triage what must be fixed before merge:
+
+- **No danger/error color token exists** in the design system, so five places use raw
+  `text-red-400`. Either add a token or accept the exception — but decide it once, centrally.
+- **The profile form sits directly on canvas** — no `surface-1` panel, no hairline border, no 24px
+  interior padding. Matches its brief's sample verbatim, but not the design system.
+- **Kit array fields round-trip lossily**: `resume_bullets`/`interview_questions` split on newline,
+  trim each line and drop blanks, so a model-generated bullet containing an embedded newline
+  silently becomes two bullets on the user's first edit.
+- **Autosave timers aren't flushed on unmount** — navigating away inside the 800ms debounce window
+  drops that save. Benign under React 18; the correct fix is flush-on-unmount plus a `mountedRef`,
+  *not* a bare `clearTimeout` (which would lose the save outright).
+- **A11y gaps**: error text has no `aria-live`/`role="status"`, and `aria-label` overrides the
+  visible `<label>` on the profile textareas (WCAG 2.5.3).
+- **`KitPanel`'s `useState(kit)` never re-syncs with its prop**, and the sections' prop-sync effects
+  are identity-keyed on arrays — both are stale-prop traps for whoever adds the next refresh path.
+- **Board drag race** (Task 17): last-write-wins if a second drag starts before the first PATCH
+  resolves. Parked as impractical to hit by hand on localhost; no data corruption, since server-side
+  position renumbering stays authoritative.
+- Smaller ones: `handleRetryLoad` has no re-entrancy guard; `editKitField`'s `INSERT OR IGNORE`
+  leaves `model_text`/`model_web` NULL if a PATCH ever precedes a generation (unreachable via UI).

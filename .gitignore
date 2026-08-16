@@ -8,3 +8,7 @@ dist/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Next.js / TS build artifacts
+next-env.d.ts
+*.tsbuildinfo
