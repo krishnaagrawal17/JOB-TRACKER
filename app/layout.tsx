@@ -3,7 +3,9 @@ import { Inter, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'], weight: ['500', '600', '700'], variable: '--font-inter' });
+// 400 is required: the body / body-sm / caption type scale is all fontWeight 400, and
+// without it the browser silently substitutes 500 for every line of body copy.
+const inter = Inter({ subsets: ['latin'], weight: ['400', '500', '600', '700'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono' });
 
 export const metadata: Metadata = {
