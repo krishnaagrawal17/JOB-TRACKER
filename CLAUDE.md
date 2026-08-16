@@ -15,12 +15,20 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1`.** Task 1 of 7 is complete
-and reviewed; Tasks 2–7 remain. Resume with `superpowers:subagent-driven-development` against
+**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1 and 2 of 7 are
+complete and reviewed; **Task 3 is next and has NOT been started.** Resume with
+`superpowers:subagent-driven-development` against
 `docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
 `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
-line are done and must not be re-dispatched. **The user's standing preference is to check in after
-each task rather than run continuously.**
+line are done and must not be re-dispatched.
+
+**ASK BEFORE DISPATCHING EACH TASK. This is not a formality and it has already been violated once.**
+The user checks in per task and does not want continuous execution. On 2026-08-16 they said
+"continue" several times in a row; that was read as standing permission and Task 3 was dispatched
+unprompted, drawing the correction "ask me before starting task 3". A short reply approves the task
+it names and nothing beyond it — every subsequent task needs its own ask. Prep work (extracting the
+task brief, recording BASE, ledger updates) does not need permission; the implementer dispatch
+does.
 
 Auth is being added because the app is going onto a tunnel, which invalidates the local-only
 assumption. Tasks 1–6 leave the app fully usable; **Task 7 is the moment it starts requiring a
@@ -52,8 +60,8 @@ Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix w
 `main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
 exists here, having been renamed `main` during the repo split.
 
-Current: branch **`auth-phase-1`** at `86a6597` (1 of 7 auth tasks landed), **201/201 tests passing
-across 33 files**, `tsc --noEmit` clean, working tree clean.
+Current: branch **`auth-phase-1`** at `abb0468` (2 of 7 auth tasks landed), **212/212 tests passing
+across 34 files**, `tsc --noEmit` clean, working tree clean.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -148,12 +156,35 @@ adds `middleware.ts` and is the moment the app starts demanding a password — a
 `npm run set-password` is mandatory or every request returns 503, by design. There is deliberately
 no `AUTH_ENABLED` flag: an auth system with an off switch is how auth ends up off in production.
 
-**Task 1 (session tokens) is complete** — `86a6597`, reviewed clean after one fix round. The fix
-is worth remembering: the implementation compiled fine under Vitest but failed `tsc --noEmit`
+**Task 1 (session tokens) — complete, `86a6597`**, reviewed clean after one fix round. The fix is
+worth remembering: the implementation compiled fine under Vitest but failed `tsc --noEmit`
 (`Uint8Array<ArrayBufferLike>` not assignable to `BufferSource`), which would have broken
 `npm run build` for the whole app. **Vitest strips types with esbuild without checking them, so a
 green test run proves nothing about types.** Run `npx tsc --noEmit` as part of verifying every
 remaining task; the controller's own first check missed this by testing but not typechecking.
+
+**Task 2 (password hashing) — complete, `abb0468`**, spec ✅ and quality approved first time, no
+Critical or Important findings. scrypt at N=16384/r=8/p=1, 32-byte key, 16-byte random salt,
+`timingSafeEqual` for comparison. The reviewer traced every malformed-input path by hand and
+confirmed `timingSafeEqual` is reachable only when both buffers are provably 32 bytes, so it can
+never throw — worth preserving if that file is ever edited, since `timingSafeEqual` throws rather
+than returning false on a length mismatch.
+
+**Task 3 (the `npm run set-password` script) — NOT started.** Two things about it that are already
+decided and should not be re-derived:
+
+1. It **writes to `.env.local`**, which holds the live `OPENROUTER_API_KEY`. The script must
+   preserve existing values and must preserve an existing `AUTH_SESSION_SECRET` rather than
+   regenerating one. Take a backup before running it.
+2. **Controller ruling (PF-1), carried from the pre-flight scan:** the script duplicates Task 2's
+   scrypt parameters instead of importing them, because it is plain ESM run by `node` and
+   `lib/auth/password.ts` is TypeScript. The duplication is forced but dangerous — drift means the
+   script writes a hash the app cannot verify and the owner is locked out with no explanatory
+   error. Mitigation: the script must export `hashPasswordForSetup(password)` behind a main-module
+   guard (so importing it does not prompt or write files), and `scripts/set-password.test.ts` must
+   assert `verifyPassword(pw, await hashPasswordForSetup(pw))` is true — testing interop directly
+   rather than eyeballing constants. An implementer must not run the interactive script: it blocks
+   on hidden stdin input and will hang.
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
