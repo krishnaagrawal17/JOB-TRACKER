@@ -108,8 +108,11 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           messages: [{ role: 'user', content: buildCompanyBriefPrompt(job) }],
           plugins: [{ id: 'web', max_results: 5 }],
         });
-        // citation metadata isn't exposed by callOpenRouter's string-only return
-        // in this phase — see Task 14's implementation note.
+        // No `sources` is passed here on purpose: the web plugin's citation annotations
+        // are deliberately discarded in v1 (callOpenRouter returns only the content
+        // string), so company_brief_sources stays null and CompanyBriefSection's citation
+        // list never renders. The column, parsing, and UI are kept for a future phase
+        // that threads annotations through — this is deferred scope, not a bug.
         upsertKitField(db, { jobId, field: 'company_brief', value: content.trim(), model: WEB_MODEL_SLUG });
       },
     },

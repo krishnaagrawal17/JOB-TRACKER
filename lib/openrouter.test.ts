@@ -103,6 +103,46 @@ describe('callOpenRouter', () => {
     ).rejects.toThrow('rate limited');
   });
 
+  it('passes an abort signal so a hung request cannot hang forever', async () => {
+    process.env.OPENROUTER_API_KEY = 'test-key';
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'Generated text' } }] }),
+    });
+    global.fetch = mockFetch as unknown as typeof fetch;
+
+    await callOpenRouter({ model: 'test/model', messages: [{ role: 'user', content: 'hi' }] });
+
+    expect(mockFetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('aborts the request and reports a readable timeout when OpenRouter never responds', async () => {
+    vi.useFakeTimers();
+    try {
+      process.env.OPENROUTER_API_KEY = 'test-key';
+      let abortedSignal: AbortSignal | undefined;
+      global.fetch = vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              abortedSignal = init.signal as AbortSignal;
+              reject(new DOMException('The operation was aborted.', 'AbortError'));
+            });
+          })
+      ) as unknown as typeof fetch;
+
+      const promise = callOpenRouter({ model: 'test/model', messages: [{ role: 'user', content: 'hi' }] });
+      const rejection = expect(promise).rejects.toThrow('OpenRouter did not respond within 120 seconds.');
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      await rejection;
+
+      expect(abortedSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('throws if the response has no content', async () => {
     process.env.OPENROUTER_API_KEY = 'test-key';
     global.fetch = vi.fn().mockResolvedValue({

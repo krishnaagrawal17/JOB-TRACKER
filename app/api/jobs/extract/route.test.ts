@@ -83,6 +83,59 @@ describe('POST /api/jobs/extract', () => {
     expect(json.blocked).toBe(true);
   });
 
+  it('accepts a valid payload wrapped in a ```json code fence', async () => {
+    vi.mocked(callOpenRouter).mockResolvedValue(
+      '```json\n' +
+        JSON.stringify({
+          title: 'Engineer',
+          company: 'Acme',
+          location: 'Remote',
+          salary: null,
+          description: 'Do stuff.',
+          sourceUrl: null,
+          extraFields: {},
+        }) +
+        '\n```'
+    );
+
+    const res = await POST(makeRequest({ text: 'Engineer role at Acme.' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.extracted.title).toBe('Engineer');
+    expect(json.extracted.company).toBe('Acme');
+  });
+
+  it('accepts a valid payload wrapped in a bare ``` fence', async () => {
+    vi.mocked(callOpenRouter).mockResolvedValue(
+      '```\n' +
+        JSON.stringify({
+          title: 'Designer',
+          company: 'Acme',
+          location: null,
+          salary: null,
+          description: null,
+          sourceUrl: null,
+          extraFields: {},
+        }) +
+        '\n```'
+    );
+
+    const res = await POST(makeRequest({ text: 'Designer role at Acme.' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.extracted.title).toBe('Designer');
+  });
+
+  it('returns 502 with a readable message (not a raw parse error) when the response is unparseable', async () => {
+    vi.mocked(callOpenRouter).mockResolvedValue('Sorry, I cannot help with that.');
+
+    const res = await POST(makeRequest({ text: 'Some job text' }));
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('Extraction returned an unreadable response. Try again.');
+    expect(json.error).not.toMatch(/Unexpected token|JSON at position/);
+  });
+
   it('returns 502 when the model response fails schema validation', async () => {
     vi.mocked(callOpenRouter).mockResolvedValue(JSON.stringify({ title: 12345 }));
 

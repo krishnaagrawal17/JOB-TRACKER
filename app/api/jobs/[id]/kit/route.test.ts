@@ -193,6 +193,35 @@ describe('POST /api/jobs/[id]/kit', () => {
     expect(json.kit.companyBrief).toBe('Acme is a fintech company...');
   });
 
+  it('surfaces a timed-out call as that field\'s error while the other three still persist', async () => {
+    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+
+    vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
+      const prompt = messages[0].content;
+      if (prompt.includes('Write a tailored, professional cover letter')) return 'Dear hiring manager...';
+      if (prompt.includes('Rewrite 4-6 resume bullet points')) return JSON.stringify(['Bullet one', 'Bullet two']);
+      if (prompt.includes('predict the five interview questions')) return JSON.stringify(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
+      // What callOpenRouter throws once its 120s AbortController fires.
+      if (prompt.includes('Write a concise, one-page company brief')) {
+        throw new Error('OpenRouter did not respond within 120 seconds.');
+      }
+      throw new Error(`unexpected prompt: ${prompt}`);
+    });
+
+    const res = await POST(makeRequest(), makeParams(job.id));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    expect(json.partial).toBe(true);
+    expect(json.errors.company_brief).toBe('OpenRouter did not respond within 120 seconds.');
+    expect(json.kit.companyBrief).toBeNull();
+    // A hung call must not take the other three down with it.
+    expect(json.kit.coverLetter).toBe('Dear hiring manager...');
+    expect(json.kit.resumeBullets).toEqual(['Bullet one', 'Bullet two']);
+    expect(json.kit.interviewQuestions).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']);
+  });
+
   it('rejects a resume_bullets response that is not valid JSON at all', async () => {
     const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
     upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
