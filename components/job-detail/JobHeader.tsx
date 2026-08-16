@@ -33,7 +33,7 @@ export default function JobHeader({ job, onEdit, onDelete }: JobHeaderProps) {
             {job.location ? ` · ${job.location}` : ''}
           </p>
         </div>
-        <Badge className="rounded-full">{STAGE_LABELS[job.stage]}</Badge>
+        <Badge variant="subtle">{STAGE_LABELS[job.stage]}</Badge>
       </div>
       {job.salary && <p className="text-body-sm text-ink-subtle">{job.salary}</p>}
       <div className="flex gap-xs">

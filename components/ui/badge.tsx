@@ -15,6 +15,8 @@ const badgeVariants = cva(
         destructive:
           "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
         outline: "text-foreground",
+        // The design system's status-pill: surface-2 fill, ink-muted text, no lavender.
+        subtle: "border-transparent bg-surface-2 text-ink-muted",
       },
     },
     defaultVariants: {

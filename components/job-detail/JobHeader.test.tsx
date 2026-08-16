@@ -27,6 +27,15 @@ describe('JobHeader', () => {
     expect(screen.getByText('Applied')).toBeInTheDocument();
   });
 
+  it('renders the stage badge as a surface-2 pill, not a lavender fill', () => {
+    render(<JobHeader job={job} onEdit={() => {}} onDelete={() => {}} />);
+    const classes = screen.getByText('Applied').className.split(/\s+/);
+    expect(classes).toContain('bg-surface-2');
+    expect(classes).toContain('text-ink-muted');
+    expect(classes).toContain('rounded-full');
+    expect(classes).not.toContain('bg-primary');
+  });
+
   it('calls onEdit when the Edit button is clicked', () => {
     const onEdit = vi.fn();
     render(<JobHeader job={job} onEdit={onEdit} onDelete={() => {}} />);

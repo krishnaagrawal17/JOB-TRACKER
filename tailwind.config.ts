@@ -19,6 +19,11 @@ const config: Config = {
           hover: '#828fff',
           focus: '#5e69d1',
         },
+        // shadcn's `accent` means "subtle hover fill", but Linear's `accent` above is the
+        // brand lavender — which the design system reserves for CTAs, focus rings, and
+        // brand marks, never a fill. `accent-subtle` wires up --accent-color (≈ surface-2)
+        // so shadcn's hover states have somewhere correct to point.
+        'accent-subtle': 'hsl(var(--accent-color))',
         'accent-foreground': 'hsl(var(--accent-foreground))',
         success: '#27a644',
         background: 'hsl(var(--background))',
