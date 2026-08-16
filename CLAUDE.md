@@ -15,18 +15,19 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-Two things are open, in this order:
+**Exactly one thing is open: the manual browser walkthrough.** `OPENROUTER_API_KEY` now exists in
+`.env.local`, so nothing blocks it. See the walkthrough order below — it is the only remaining
+verification, and nothing in this app has ever been exercised by a human.
 
-1. **The merge decision, which is the user's to make.** Phase 1 is finished and green; nothing has
-   been merged or pushed. Present exactly three options and wait: (a) merge back to local `main`,
-   (b) push and open a PR — **check the remote first, `origin` points at an unrelated repo**, or
-   (c) keep the branch as-is. Do not pick for them.
-2. **The manual browser walkthrough**, once `OPENROUTER_API_KEY` exists. See the walkthrough order
-   below — it is the only remaining verification, and nothing in this app has ever been exercised
-   by a human.
+The merge decision from the previous session is **resolved**: Phase 1 was merged, and the project
+was then split out into its own standalone repository (see "Where the code lives" — the old
+worktree/`origin` warnings no longer apply and have been removed).
 
-One reversible decision the user may want to revisit: **citations ship dead** (see below). They
-were told it's a product call, not an implementation one, and did not respond either way.
+One reversible decision the user may want to revisit: **citations ship dead** (see below). This is
+now a much better-understood call than it was — a live `web`-plugin request on 2026-08-16 came back
+with `url_citation` entries in `message.annotations`, so the data demonstrably arrives and the only
+reason `company_brief_sources` is empty is that `callOpenRouter` discards everything but
+`message.content`.
 
 The SDD ledger at `.superpowers/sdd/2026-08-15-job-tracker-phase-1/progress.md` holds ~20 `Ruling:`
 lines — every decision made without asking, each with its cost-if-wrong. It is **git-ignored**, so
@@ -35,10 +36,11 @@ than deleted at the end of the plan.
 
 ---
 
-**Status: Phase 1 COMPLETE.** All 21 plan tasks done, plus the final whole-branch review and its
-fix wave. Branch `job-tracker-phase-1` at `fa47ca3`: **189/189 tests passing across 32 files**,
-`tsc --noEmit` clean, `npm run build` succeeds (9 routes emitted). Working tree clean, nothing
-merged, nothing pushed — the merge decision is the user's and was still open as of 2026-08-16.
+**Status: Phase 1 COMPLETE and merged.** All 21 plan tasks done, plus the final whole-branch review
+and its fix wave. Branch **`main`** at `9474159`: **189/189 tests passing across 32 files**,
+`tsc --noEmit` clean, `npm run build` succeeds (9 routes emitted), working tree clean. Phase 1 was
+merged as a fast-forward on 2026-08-16; the branch `job-tracker-phase-1` no longer exists here,
+having been renamed `main` during the repo split.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -47,21 +49,36 @@ task-scoped spec+quality review after each, fix loops on findings, controller le
 that workspace is gone, git history plus this file are the record.**
 
 **THE APP HAS STILL NEVER BEEN RUN IN A BROWSER.** Everything below is unit-tested and builds, but
-no human has clicked through it. `.env.local` needs a real `OPENROUTER_API_KEY` (gitignored, not
-present). *Extraction is itself an LLM call*, so without the key no job can be created through the
-UI at all — that gates the board, the detail page, and Generate Kit alike. Recommended walkthrough
-order when the key arrives, per the final review: (1) add a job via **pasted text** — it validates
-`response_format`, fence handling, and the extraction schema in one shot, and nothing else works
-until it does; (2) drag a card **down** within a column, then reload — the highest-risk fixed bug;
-(3) Generate Kit, and check whether any citations come back at all (see the citations note below);
-(4) the rest of the spec's Verification checklist.
+no human has clicked through it. `.env.local` now holds a real `OPENROUTER_API_KEY` (gitignored, so
+it exists on disk only — a fresh clone will not have it). Recommended walkthrough order, per the
+final review: (1) add a job via **pasted text** — it exercises `response_format`, fence handling,
+and the extraction schema in one shot, and *extraction is itself an LLM call*, so nothing else in
+the app works until it does; (2) drag a card **down** within a column, then reload — the
+highest-risk fixed bug; (3) Generate Kit, and check whether any citations render (see the citations
+note below — expect none, by decision); (4) the rest of the spec's Verification checklist.
+
+Step 1's underlying API behaviour has since been smoke-tested directly against OpenRouter and
+works: `response_format: { type: 'json_object' }` returned bare, parseable JSON with no fence. That
+de-risks the model call but says nothing about the UI path around it, which is still unexercised.
 
 **Model slugs are VERIFIED — this is no longer an open risk.** `TEXT_MODEL_SLUG` and
-`WEB_MODEL_SLUG` in `lib/models.ts` are both `anthropic/claude-sonnet-5`, confirmed present on
-OpenRouter's live `/api/v1/models` (canonical `anthropic/claude-sonnet-5-20260630`, `web_search`
-pricing present), independently re-checked by a second agent. Both constants being *identical* is
-intentional, not a copy-paste bug. What remains unverified is whether the `web` plugin actually
-returns grounded content — that needs the key.
+`WEB_MODEL_SLUG` in `lib/models.ts` are both **`openai/gpt-5.6-luna`** (changed 2026-08-16 from
+`anthropic/claude-sonnet-5`). Both constants being *identical* is intentional, not a copy-paste
+bug — they are separate names so the web-grounded call can move independently of the other three.
+
+Verified with **real requests**, not just an `/api/v1/models` lookup, which is the check sketch2app
+skipped when it shipped a wrong slug: the slug resolves and echoes back `openai/gpt-5.6-luna`;
+`response_format: { type: 'json_object' }` returns bare parseable JSON; and `plugins: [{ id: 'web',
+max_results: 5 }]` returns genuinely grounded, current content. **The `web` plugin question is
+therefore closed** — it works, and it also returns `url_citation` annotations (see citations below).
+
+The change was driven by cost: a full kit is 4 calls at roughly 20K in / 3K out, about $0.07 on
+Claude Sonnet 5 versus about $0.004 on Luna, so an entire job search costs well under a dollar.
+Luna is current-generation (2026-07-09) with a 1.05M context window — this is not a downgrade to a
+legacy model. If output quality disappoints during the walkthrough, `anthropic/claude-opus-5`
+($5/$25 per M) is the quality-first option at roughly $0.18 a kit; both are one-line changes, and
+`lib/models.test.ts` asserts only slug *shape*, so no test churn either way. **Re-verify with real
+requests if these ever change.**
 
 **Citations are structurally dead, by decision.** `company_brief_sources` is always NULL in the
 real app: `callOpenRouter` returns only `message.content` and discards the annotations the web
@@ -73,6 +90,15 @@ Ruled to ship as a documented v1 deferral rather than fixed — comments now sit
 implementation one.** Making it real means widening `callOpenRouter`'s return to carry annotations
 and threading them through. Root cause worth remembering: the spec promised citation rendering
 while specifying a `Promise<string>` client signature that made carrying citations impossible.
+
+**Update 2026-08-16 — the missing half of this story is now confirmed.** A live `web`-plugin
+request returned `message.annotations` containing `url_citation` objects (source `url`, `title`,
+and `start_index`/`end_index` offsets into the content). So the annotations genuinely arrive on the
+wire, and the only reason `company_brief_sources` is NULL is the client discarding them. That makes
+this a bounded, well-understood change rather than an unknown: widen the return type, persist the
+annotations, and the column, `rowToJobKit` parsing, and `CompanyBriefSection`'s citation `<ul>` are
+all already built and waiting. Still deferred pending the user's product call — but now with
+evidence rather than an assumption behind it.
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
@@ -113,15 +139,30 @@ thing in this file for anyone touching `Board.tsx`:
 
 ## Where the code lives
 
-- **Own git worktree**: `/Users/krishnaagrawal/Claude-Code/JOB_TRACKER`, linked to the root
-  repo at `/Users/krishnaagrawal/Claude-Code`, on branch `job-tracker-phase-1` (branched from
-  local `main`, not `origin/main` — the root repo's `origin` remote currently points at an
-  unrelated GitHub repo, see the root `CLAUDE.md`'s "Git topology" section before pushing
-  anything from here).
+- **Its own standalone git repository** at `/Users/krishnaagrawal/Claude-Code/JOB_TRACKER`, on
+  branch `main`, with **no remotes configured**. It is *not* a worktree and has no relationship to
+  the repo at `/Users/krishnaagrawal/Claude-Code` beyond sitting inside that folder on disk (where
+  it is gitignored).
 - Full app code under `app/`, `components/`, `lib/` — all 21 tasks landed. `MEMORY.md` at the repo
   root is the running project log (project details, steps completed, what's pending).
-- **Do not push from here without checking the remote first.** `origin` points at an unrelated
-  GitHub repo, so a `git push` would land this branch in the wrong project.
+- **Before any first `git push`, add a remote deliberately.** There is no `origin` right now, which
+  is intentional — see the history note below.
+
+### Repo history (2026-08-16) — why there are no remotes
+
+This project used to be a worktree of `/Users/krishnaagrawal/Claude-Code`, a single repo that also
+hosted two unrelated projects: **Leadership** (a Vite app, also at repo root) and **sketch2app** (in
+a `sketch2app/` subfolder). All three shared one history whose root commit is literally *"Add design
+spec for AI Leadership Tutor"*, and that repo's `origin` pointed at
+`github.com/krishnaagrawal17/Leadership.git` — so a `git push` from here would have uploaded the job
+tracker into the Leadership GitHub repo. Job Tracker and Leadership also collided on four root
+paths (`CLAUDE.md`, `docs`, `package.json`, `tsconfig.json`) and only coexisted because their
+branches never met.
+
+The split preserved all 41 commits by swapping in a fresh `.git` rather than copying files, which
+kept the gitignored-but-valuable `.env.local` and `.superpowers/` ledger in place. `origin` was
+removed deliberately so this repo cannot push into Leadership. **If you add a remote, create a new,
+empty GitHub repo for the job tracker — do not reuse the Leadership one.**
 
 ## Stack (per the design spec)
 
@@ -136,9 +177,10 @@ dark-only token system Krishna supplied — see the spec for exact hex/spacing/r
 ## Key decisions already made (see the spec for full reasoning)
 
 - Local-only: `npm run dev`, single user, no auth, no hosting.
-- No model-picker UI — `lib/models.ts`'s `TEXT_MODEL_SLUG`/`WEB_MODEL_SLUG` are hard-coded and
-  **now verified** against OpenRouter's live `/api/v1/models` list (see Status). Re-verify if they
-  are ever changed; sketch2app shipped a wrong slug precisely by skipping this.
+- No model-picker UI — `lib/models.ts`'s `TEXT_MODEL_SLUG`/`WEB_MODEL_SLUG` are hard-coded, both
+  currently `openai/gpt-5.6-luna`, and **verified with real API requests** (see Status). Re-verify
+  the same way if they are ever changed; a catalog lookup is not enough, and sketch2app shipped a
+  wrong slug precisely by skipping this.
 - Generate Kit fires 4 OpenRouter calls in parallel (`Promise.allSettled`); a single failure
   must not discard the other three — each field persists independently. Each call now carries a
   120s `AbortSignal.timeout`, and a timeout surfaces as that field's entry in the `errors` map
