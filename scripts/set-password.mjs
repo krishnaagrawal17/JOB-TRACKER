@@ -47,6 +47,10 @@ export function upsertEnv(contents, key, value) {
   return contents.length && !contents.endsWith('\n') ? `${contents}\n${line}\n` : `${contents}${line}\n`;
 }
 
+export function hasSessionSecret(contents) {
+  return /^AUTH_SESSION_SECRET=.+$/m.test(contents);
+}
+
 export async function hashPasswordForSetup(password) {
   const salt = randomBytes(16);
   const key = await scryptAsync(password, salt, 32, { N: 16384, r: 8, p: 1 });
@@ -69,7 +73,7 @@ async function main() {
 
   let contents = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
   contents = upsertEnv(contents, 'AUTH_PASSWORD_HASH', hash);
-  if (!/^AUTH_SESSION_SECRET=.+$/m.test(contents)) {
+  if (!hasSessionSecret(contents)) {
     contents = upsertEnv(contents, 'AUTH_SESSION_SECRET', randomBytes(32).toString('hex'));
     console.log('Generated a new session secret.');
   } else {

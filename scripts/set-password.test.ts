@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { verifyPassword } from '@/lib/auth/password';
-import { hashPasswordForSetup, upsertEnv } from './set-password.mjs';
+import { hashPasswordForSetup, upsertEnv, hasSessionSecret } from './set-password.mjs';
 
 describe('hashPasswordForSetup', () => {
   it('produces a hash that lib/auth/password.ts can verify', async () => {
@@ -38,19 +38,22 @@ describe('upsertEnv', () => {
   });
 });
 
-describe('the session-secret detection regex used by main()', () => {
-  // main() is not exported (it prompts on stdin and exits the process), so this
-  // replicates the exact detection regex from scripts/set-password.mjs's main()
-  // rather than exporting a predicate purely for this one test.
-  const SESSION_SECRET_PRESENT = /^AUTH_SESSION_SECRET=.+$/m;
-
+describe('hasSessionSecret', () => {
+  // This is the real predicate main() calls at scripts/set-password.mjs:76 to decide
+  // whether to keep the existing AUTH_SESSION_SECRET or generate a new one, so this
+  // exercises the production code path directly rather than a hand-copied regex.
   it('recognizes an existing non-empty AUTH_SESSION_SECRET as present, not missing', () => {
     const contents = 'OPENROUTER_API_KEY=abc123\nAUTH_SESSION_SECRET=' + 'a'.repeat(64) + '\n';
-    expect(SESSION_SECRET_PRESENT.test(contents)).toBe(true);
+    expect(hasSessionSecret(contents)).toBe(true);
   });
 
   it('treats a missing AUTH_SESSION_SECRET as missing', () => {
     const contents = 'OPENROUTER_API_KEY=abc123\n';
-    expect(SESSION_SECRET_PRESENT.test(contents)).toBe(false);
+    expect(hasSessionSecret(contents)).toBe(false);
+  });
+
+  it('treats an empty-valued AUTH_SESSION_SECRET as missing', () => {
+    const contents = 'OPENROUTER_API_KEY=abc123\nAUTH_SESSION_SECRET=\n';
+    expect(hasSessionSecret(contents)).toBe(false);
   });
 });
