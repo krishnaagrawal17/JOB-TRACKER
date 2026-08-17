@@ -15,8 +15,8 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1 and 2 of 7 are
-complete and reviewed; **Task 3 is next and has NOT been started.** Resume with
+**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1, 2 and 3 of 7
+are complete and reviewed; **Task 4 is next and has NOT been started.** Resume with
 `superpowers:subagent-driven-development` against
 `docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
 `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
@@ -60,8 +60,8 @@ Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix w
 `main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
 exists here, having been renamed `main` during the repo split.
 
-Current: branch **`auth-phase-1`** at `abb0468` (2 of 7 auth tasks landed), **212/212 tests passing
-across 34 files**, `tsc --noEmit` clean, working tree clean.
+Current: branch **`auth-phase-1`** at `b8f0b84` (3 of 7 auth tasks landed), **220/220 tests passing
+across 35 files**, `tsc --noEmit` clean, working tree clean.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -170,21 +170,39 @@ confirmed `timingSafeEqual` is reachable only when both buffers are provably 32 
 never throw — worth preserving if that file is ever edited, since `timingSafeEqual` throws rather
 than returning false on a length mismatch.
 
-**Task 3 (the `npm run set-password` script) — NOT started.** Two things about it that are already
-decided and should not be re-derived:
+**Task 3 (the `npm run set-password` script) — complete, `b8f0b84`.** Spec ✅ first time, one
+Important finding fixed in one round. `scripts/set-password.mjs` plus `scripts/set-password.test.ts`
+(7 tests), `.env.local.example` documented, one line added to `package.json`, zero new deps.
 
-1. It **writes to `.env.local`**, which holds the live `OPENROUTER_API_KEY`. The script must
-   preserve existing values and must preserve an existing `AUTH_SESSION_SECRET` rather than
-   regenerating one. Take a backup before running it.
-2. **Controller ruling (PF-1), carried from the pre-flight scan:** the script duplicates Task 2's
-   scrypt parameters instead of importing them, because it is plain ESM run by `node` and
-   `lib/auth/password.ts` is TypeScript. The duplication is forced but dangerous — drift means the
-   script writes a hash the app cannot verify and the owner is locked out with no explanatory
-   error. Mitigation: the script must export `hashPasswordForSetup(password)` behind a main-module
-   guard (so importing it does not prompt or write files), and `scripts/set-password.test.ts` must
-   assert `verifyPassword(pw, await hashPasswordForSetup(pw))` is true — testing interop directly
-   rather than eyeballing constants. An implementer must not run the interactive script: it blocks
-   on hidden stdin input and will hang.
+**The owner has NOT yet run `npm run set-password`, and Task 7 is unusable until they do.** When
+running it: **back up `.env.local` first** (`cp .env.local ~/env-backup`) — it holds the live
+`OPENROUTER_API_KEY`. Then perform the brief's Steps 3 and 4 by hand, which no automated test can
+substitute for: confirm `OPENROUTER_API_KEY`, `AUTH_PASSWORD_HASH` and `AUTH_SESSION_SECRET` each
+appear exactly once and the API key's value is unchanged, then re-run the script and confirm the
+session secret is preserved rather than regenerated.
+
+Three things about this task worth not re-deriving:
+
+1. **The scrypt duplication is real but provably safe now (controller ruling PF-1).** The script
+   re-implements Task 2's scrypt parameters rather than importing them, because it is plain ESM run
+   by `node` and `lib/auth/password.ts` is TypeScript. Drift would write a hash the app cannot
+   verify and lock the owner out with no explanatory error. The guard is an *interop* test, not a
+   constants comparison: `scripts/set-password.test.ts` asserts
+   `verifyPassword(pw, await hashPasswordForSetup(pw))`, and `verifyPassword` recomputes scrypt from
+   its own hardcoded parameters — so any drift genuinely fails the test. The reviewer traced this by
+   hand and confirmed it. **Preserve that test if either file is ever edited.**
+2. **The script must never side-effect on import.** All prompting, file writing and `process.exit`
+   sit behind a main-module guard so the test can import `hashPasswordForSetup`, `upsertEnv` and
+   `hasSessionSecret` without prompting or writing. An implementer must never *run* the interactive
+   script: it blocks on hidden stdin and will hang.
+3. **Lesson worth carrying (controller ruling R3-1 and its aftermath):** the brief's only
+   verification of the riskiest behaviour — not clobbering the live API key — was a manual terminal
+   run no subagent can perform. Substituting unit tests over exported helpers worked, but the first
+   attempt hand-copied the session-secret regex into the test instead of importing it, so the real
+   code path had zero coverage and the test only proved a copy agreed with itself. That happened
+   because the controller's own dispatch offered the hand-copied variant as acceptable. **When
+   replacing a manual check with a unit test, the test must call the production code path — an
+   exported predicate used by `main()`, never a duplicated literal.**
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
