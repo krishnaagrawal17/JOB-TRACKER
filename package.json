@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "set-password": "node scripts/set-password.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
