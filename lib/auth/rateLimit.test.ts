@@ -36,4 +36,12 @@ describe('login rate limiting', () => {
     clearFailures();
     expect(isLockedOut()).toBe(false);
   });
+
+  it('resets the failure counter when lockout expires', () => {
+    const start = 1_000_000;
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) recordFailure(start);
+    expect(isLockedOut(start + LOCKOUT_MS + 1)).toBe(false);
+    recordFailure(start + LOCKOUT_MS + 1);
+    expect(isLockedOut(start + LOCKOUT_MS + 1)).toBe(false);
+  });
 });
