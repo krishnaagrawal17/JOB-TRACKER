@@ -36,6 +36,33 @@ assumption. Tasks 1–6 leave the app fully usable; **Task 7 is the moment it st
 password**, and `npm run set-password` must have been run by then or every request returns 503 by
 design.
 
+### What Task 7 is, and the three things to get right
+
+Task 7 creates `middleware.ts` + `middleware.test.ts` (10 test cases) and nothing else. It gates
+every path except `/login`, `/api/auth/login` and `/api/auth/logout`: a valid session passes
+through, an unauthenticated **page** request 307-redirects to `/login?next=<path>`, an
+unauthenticated **API** request gets 401 JSON, and a missing `AUTH_SESSION_SECRET`/
+`AUTH_PASSWORD_HASH` returns **503** rather than falling through.
+
+1. **`npm run set-password` has still NOT been run.** It must be, or the app is 503 everywhere the
+   moment this lands. **Back up `.env.local` first** (`cp .env.local ~/env-backup`) — it holds the
+   live `OPENROUTER_API_KEY`. Then do the brief's manual Steps 3–4 (each of the three keys appears
+   exactly once, the API key's value unchanged; re-run and confirm the session secret is preserved,
+   not regenerated). No automated test substitutes for this.
+2. **The Edge/Node split is enforced at runtime, not build time — verify the import boundary
+   directly, don't trust a green suite.** `middleware.ts` may import **only** `lib/auth/session.ts`
+   (Web Crypto). If `lib/auth/password.ts` or anything else pulling `node:crypto` reaches the
+   middleware import graph, it fails in the running server. `npm run build` is the real check;
+   confirm the module graph by hand as well.
+3. **Stop the dev server before landing it.** Hot-reloading a new `middleware.ts` into a running
+   server produces confusing intermediate states that look like bugs.
+
+After it lands, the plan's own manual verification list is the close-out: redirect to
+`/login?next=/`; wrong password → error, six attempts → lockout; correct password → the board with
+the existing job still present; reload stays logged in; **Log out** returns to `/login` and Back
+does not restore the board; `curl` on `/api/jobs` → 401; `/login?next=https://example.com` lands on
+`/`, not example.com; then `npm run build && npm start` and log in over the tunnel from a phone.
+
 Also open, smaller: **push this repo to GitHub** — decided yes, private, but not yet done. Do the
 git-identity fix first (below), because it is far cheaper before a push than after.
 
@@ -284,6 +311,33 @@ defends is removed. Both this task's new tests and Task 4's were validated by *m
 the guard, watch the test go red, restore it. Task 5's fail-closed tests were not, and the reviewer
 showed they would pass with the guard deleted. Do this for any test defending a guard or a side
 effect.
+
+### Deferred minors awaiting the final whole-branch review (Tasks 3–6)
+
+Recorded here because they otherwise live **only** in the git-ignored ledger, which `git clean -fdx`
+would destroy. The final review must triage which of these block a merge; none were judged
+blocking at task level.
+
+- **Task 3:** `set-password.mjs` calls `main()` with no `await`/`.catch()`, so a rejection surfaces
+  as an unhandled promise rejection rather than a clean exit. Same shape as the brief's original.
+- **Task 3:** the `set-password` entry sits after `test` in `package.json` rather than grouped —
+  purely stylistic.
+- **Task 5:** `login/route.ts` — a literal `null` JSON body does not throw in `request.json()`, so
+  the try/catch misses it and `body.password` throws a `TypeError`, giving Next's default 500
+  instead of the route's own 400. Plan-mandated, untested path, only the app's own login page posts
+  there.
+- **Task 5:** the two fail-closed tests have weak mutation-kill strength — deleting the
+  `if (!hash || !secret)` guard would still crash downstream and still surface as 500, so they would
+  likely pass anyway. They document intent but do not defend the guard.
+- **Task 5:** no independent RED capture for the mandated logout test file; only the login file's
+  RED was recorded.
+- **Task 5:** `route.ts`'s JSON-parse `catch` (malformed syntax → 400) has no test.
+- **Task 5:** the `secure` cookie attribute is unasserted in both route test files.
+- **Task 5, architectural, not fixable there:** logout clears the cookie client-side only. Sessions
+  are stateless signed tokens with no server-side revocation, so a copied token stays valid until
+  its own expiry regardless of logout. Inherent to the Task 1 design.
+- **Task 6:** the double-submit test exercises only the `disabled` attribute, not `handleSubmit`'s
+  `if (submitting) return`, which is reachable solely via the untested Enter-key submit path.
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
