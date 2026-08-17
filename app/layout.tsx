@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
-import Link from 'next/link';
+import SiteHeader from '@/components/SiteHeader';
 import './globals.css';
 
 // 400 is required: the body / body-sm / caption type scale is all fontWeight 400, and
@@ -17,16 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable} bg-canvas font-sans text-ink antialiased`}>
-        <header className="flex h-14 items-center gap-lg border-b border-hairline bg-canvas px-lg">
-          <nav className="flex gap-md text-body-sm">
-            <Link href="/" className="text-ink hover:text-accent-hover">
-              Board
-            </Link>
-            <Link href="/profile" className="text-ink-muted hover:text-accent-hover">
-              Profile
-            </Link>
-          </nav>
-        </header>
+        <SiteHeader />
         {children}
       </body>
     </html>
