@@ -13,15 +13,47 @@ one-page company brief) is generated via OpenRouter and persisted on the card.
 Full product/architecture detail: `docs/superpowers/specs/2026-08-15-job-tracker-design.md`
 Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026-08-15-job-tracker-phase-1.md`
 
+## ⚠️ THE APP IS CURRENTLY 503 ON EVERY REQUEST. THIS IS BY DESIGN, NOT A BUG.
+
+Read this before touching anything or concluding the app is broken. As of 2026-08-17 the auth gate
+is **landed** on `auth-phase-1` (`fca7a61`) but **`npm run set-password` has still never been run**,
+so `middleware.ts` fail-closes on the missing `AUTH_SESSION_SECRET`/`AUTH_PASSWORD_HASH` and every
+request returns 503. `/login` itself still loads — that is exactly what the R7-1 test defends — but
+logging in cannot succeed until those keys exist.
+
+Two ways to a usable app:
+- **Run `npm run set-password`** (see the owner-action list below). This is the intended path.
+- **`git checkout main`** — Phase 1, no gate at all. Use this if the goal is to demo or use the
+  tracker rather than to finish auth.
+
+Do not "fix" the 503 by weakening or bypassing the gate, and do not add an `AUTH_ENABLED` flag —
+its absence is a deliberate design decision (an auth system with an off switch is how auth ends up
+off in production).
+
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1–6 of 7 are
-complete and reviewed; **Task 7 — the one that actually locks the app — is next and has NOT been
-started.** Resume with
-`superpowers:subagent-driven-development` against
+**Work in flight: single-user authentication, on branch `auth-phase-1` at `fca7a61`.** All 7 tasks'
+code is now written and committed. **Task 7's code is LANDED but its task-scoped review never
+returned a verdict**, so Task 7 has no `Task <N>: complete` line and is not done.
+
+**DO NOT RE-DISPATCH THE TASK 7 IMPLEMENTER.** The code exists and was independently verified by the
+controller (details in the Task 7 section below). The *only* outstanding step is the spec+quality
+review, and all three artifacts it needs already exist in the workspace:
+
+- brief: `.superpowers/sdd/2026-08-16-job-tracker-auth/task-7-brief.md`
+- report: `.superpowers/sdd/2026-08-16-job-tracker-auth/task-7-report.md`
+- diff: `.superpowers/sdd/2026-08-16-job-tracker-auth/review-8c60575..fca7a61.diff`
+
+Resume with `superpowers:subagent-driven-development` against
 `docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
 `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
-line are done and must not be re-dispatched.
+line are done and must not be re-dispatched. Carry rulings R7-1, R7-2 and R7-3 into the review
+dispatch. Then: the whole-branch final review over `git merge-base main HEAD`..HEAD on the most
+capable available model, pointed at the ledger's deferred-minor and `Ruling:` lines, then
+`superpowers:finishing-a-development-branch`.
+
+**Why the review is outstanding: two reviewer dispatches died on API 529 Overloaded and a third was
+stopped by the user.** Infrastructure, not verdicts — no work was lost and no finding was reported.
 
 **ASK BEFORE DISPATCHING EACH TASK. This is not a formality and it has already been violated once.**
 The user checks in per task and does not want continuous execution. On 2026-08-16 they said
@@ -29,39 +61,32 @@ The user checks in per task and does not want continuous execution. On 2026-08-1
 unprompted, drawing the correction "ask me before starting task 3". A short reply approves the task
 it names and nothing beyond it — every subsequent task needs its own ask. Prep work (extracting the
 task brief, recording BASE, ledger updates) does not need permission; the implementer dispatch
-does.
+does. There are no implementer dispatches left in this plan, but the same courtesy applies to the
+review dispatches and to the merge.
 
 Auth is being added because the app is going onto a tunnel, which invalidates the local-only
-assumption. Tasks 1–6 leave the app fully usable; **Task 7 is the moment it starts requiring a
-password**, and `npm run set-password` must have been run by then or every request returns 503 by
-design.
+assumption.
 
-### What Task 7 is, and the three things to get right
+### What the owner still has to do by hand — none of it has been done yet
 
-Task 7 creates `middleware.ts` + `middleware.test.ts` (10 test cases) and nothing else. It gates
-every path except `/login`, `/api/auth/login` and `/api/auth/logout`: a valid session passes
-through, an unauthenticated **page** request 307-redirects to `/login?next=<path>`, an
-unauthenticated **API** request gets 401 JSON, and a missing `AUTH_SESSION_SECRET`/
-`AUTH_PASSWORD_HASH` returns **503** rather than falling through.
+The user was given this full sequence on 2026-08-17 and **confirmed none of it**, including the
+backup. No automated test substitutes for any of it.
 
-1. **`npm run set-password` has still NOT been run.** It must be, or the app is 503 everywhere the
-   moment this lands. **Back up `.env.local` first** (`cp .env.local ~/env-backup`) — it holds the
-   live `OPENROUTER_API_KEY`. Then do the brief's manual Steps 3–4 (each of the three keys appears
-   exactly once, the API key's value unchanged; re-run and confirm the session secret is preserved,
-   not regenerated). No automated test substitutes for this.
-2. **The Edge/Node split is enforced at runtime, not build time — verify the import boundary
-   directly, don't trust a green suite.** `middleware.ts` may import **only** `lib/auth/session.ts`
-   (Web Crypto). If `lib/auth/password.ts` or anything else pulling `node:crypto` reaches the
-   middleware import graph, it fails in the running server. `npm run build` is the real check;
-   confirm the module graph by hand as well.
-3. **Stop the dev server before landing it.** Hot-reloading a new `middleware.ts` into a running
-   server produces confusing intermediate states that look like bugs.
-
-After it lands, the plan's own manual verification list is the close-out: redirect to
-`/login?next=/`; wrong password → error, six attempts → lockout; correct password → the board with
-the existing job still present; reload stays logged in; **Log out** returns to `/login` and Back
-does not restore the board; `curl` on `/api/jobs` → 401; `/login?next=https://example.com` lands on
-`/`, not example.com; then `npm run build && npm start` and log in over the tunnel from a phone.
+1. **Back up `.env.local` first: `cp .env.local ~/env-backup`.** It holds the live
+   `OPENROUTER_API_KEY` and `npm run set-password` rewrites the file.
+2. **`npm run set-password`** (interactive, hidden stdin — the owner must run it; a subagent cannot
+   and will hang if it tries). Then the brief's manual Steps 3–4: confirm `OPENROUTER_API_KEY`,
+   `AUTH_PASSWORD_HASH` and `AUTH_SESSION_SECRET` each appear exactly once and the API key's value
+   is unchanged; re-run the script and confirm the session secret is **preserved, not regenerated**.
+3. The plan's manual verification close-out: redirect to `/login?next=/`; wrong password → error,
+   six attempts → lockout; correct password → the board with the existing job still present; reload
+   stays logged in; **Log out** returns to `/login` and Back does not restore the board; `curl` on
+   `/api/jobs` → 401; `/login?next=https://example.com` lands on `/`, **not** example.com (this one
+   is the open redirect that was found and fixed mid-plan — worth actually doing); then
+   `npm run build && npm start` and log in over the tunnel from a phone.
+4. Worth checking opportunistically while in there: that `/login` renders **styled**. Nothing in the
+   suite covers `config.matcher`, so if its `_next/static` exclusion were wrong the login page would
+   load without CSS/JS — invisible to every test.
 
 Also open, smaller: **push this repo to GitHub** — decided yes, private, but not yet done. Do the
 git-identity fix first (below), because it is far cheaper before a push than after.
@@ -88,8 +113,10 @@ Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix w
 `main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
 exists here, having been renamed `main` during the repo split.
 
-Current: branch **`auth-phase-1`** at `0b804a3` (6 of 7 auth tasks landed), **250/250 tests passing
-across 40 files**, `tsc --noEmit` clean, `npm run build` green at 13 routes, working tree clean.
+Current: branch **`auth-phase-1`** at `fca7a61` (all 7 auth tasks' code landed; Task 7's review still
+owed), **261/261 tests passing across 41 files**, `tsc --noEmit` clean, `npm run build` green at 13
+routes plus a separate 34.6 kB Middleware Edge bundle, working tree clean. **The app returns 503
+everywhere until `npm run set-password` is run — see the warning at the top of this file.**
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -312,7 +339,56 @@ the guard, watch the test go red, restore it. Task 5's fail-closed tests were no
 showed they would pass with the guard deleted. Do this for any test defending a guard or a side
 effect.
 
-### Deferred minors awaiting the final whole-branch review (Tasks 3–6)
+**Task 7 (the middleware gate) — code landed, `fca7a61`; REVIEW STILL OWED.** `middleware.ts` (41
+lines) + `middleware.test.ts` (11 tests), 114 added lines, nothing else touched. This is the commit
+that locks the app. Gates every path except `/login`, `/api/auth/login` and `/api/auth/logout`: a
+valid session passes through, an unauthenticated **page** request 307-redirects to
+`/login?next=<path>`, an unauthenticated **API** request gets 401 JSON, and a missing
+`AUTH_SESSION_SECRET`/`AUTH_PASSWORD_HASH` returns **503** rather than falling through.
+`middleware.ts` is a verbatim transcription of the brief's code, so any defect found in it later is
+plan-mandated.
+
+**Its task-scoped spec+quality review never ran** — two dispatches died on API 529 Overloaded and a
+third was stopped by the user. No verdict, no findings, nothing lost. That review is the single
+outstanding item in the whole plan.
+
+What the controller verified independently, so it does not need redoing:
+
+- Exactly 2 new files, +114/-0, tree clean; `package.json`, the lockfile and `lib/auth/*` untouched.
+- `tsc --noEmit` clean; **261/261 across 41 files** (250 prior + 11 new, confirming R7-1 landed).
+- `npm run build` green. The route table still shows **13 routes** — the implementer's report claims
+  "12 routes", which is wrong but harmless: 12 was the `Generating static pages (12/12)` count. No
+  route was lost. Don't re-investigate this.
+- **The Edge/Node import boundary was traced BY HAND, not inferred from the green build**, because a
+  violation fails at runtime rather than build time. `middleware.ts` has exactly two imports
+  (`next/server`, `@/lib/auth/session`) and `lib/auth/session.ts` still has **zero** imports of its
+  own, so the graph is closed. The build also emits a separate `ƒ Middleware 34.6 kB` bundle, which
+  is the positive signal that it compiled for Edge.
+- **Both mandated mutations were reproduced by the controller**, not taken on trust: deleting the
+  `if (!secret || !hash)` block gives `1 failed | 10 passed` with the only casualty being "fails
+  closed when auth is not configured"; moving the env check above the `PUBLIC_PATHS` passthrough
+  gives `1 failed | 10 passed` with the only casualty being "still lets /login through when auth is
+  not configured". Each guard is defended by exactly one test and each test dies when its guard
+  goes. `middleware.ts` was restored byte-identical afterwards.
+
+Three rulings extended the brief here:
+
+1. **R7-1 — added an 11th test** asserting `/login` returns 200 when **both** auth env vars are
+   absent. The brief checks `PUBLIC_PATHS` *before* the fail-closed env check, and that ordering is
+   load-bearing: reverse it and `/login` itself 503s, so an owner who has not run
+   `npm run set-password` can never reach their own login page and has no in-app recovery. All 10 of
+   the brief's own tests pass under **either** ordering, because the public-path cases run with both
+   env vars set. **Do not reorder those two checks, and do not delete that test.**
+2. **R7-2 — mandated mutation validation** of both guards as reported evidence rather than a
+   directive, applying the lesson Tasks 4 and 6 paid for and Task 5 skipped.
+3. **R7-3 — downgraded the task reviewer** from the most capable tier to standard after the two
+   529s, rather than retry the same tier a third time. Justified by diff size (114 lines, verbatim
+   transcription) and by the risk already discharged through the hand-traced import boundary and
+   reproduced mutations. **Mitigation the next session must honour: point the whole-branch final
+   review at this ruling explicitly**, since it re-examines this exact diff on the most capable
+   model and is where a missed subtlety would surface.
+
+### Deferred minors awaiting the final whole-branch review (Tasks 3–7)
 
 Recorded here because they otherwise live **only** in the git-ignored ledger, which `git clean -fdx`
 would destroy. The final review must triage which of these block a merge; none were judged
@@ -338,6 +414,19 @@ blocking at task level.
   its own expiry regardless of logout. Inherent to the Task 1 design.
 - **Task 6:** the double-submit test exercises only the `disabled` attribute, not `handleSubmit`'s
   `if (submitting) return`, which is reachable solely via the untested Enter-key submit path.
+- **Task 7:** the redirect writes only `pathname` into `next` (`middleware.ts:39`), silently dropping
+  the query string — an unauthenticated hit on `/jobs/12?tab=kit` returns to `/jobs/12`. Spotted at
+  pre-flight and deliberately left alone: it is the brief's own code, it is *more* conservative than
+  `safeNextPath` (which does accept `/jobs/12?x=1`), and widening it would put attacker-influenceable
+  query text back into the redirect that Task 6's Critical finding was about. Fix only with that
+  trade-off in mind.
+- **Task 7:** `config.matcher` (`middleware.ts:11-13`) has **no test at all**. Nothing verifies the
+  `_next/static`/`_next/image`/`favicon.ico` exclusions, and a unit test asserting the literal
+  against itself would prove nothing — so the only real check is visual: does `/login` render styled
+  when logged out. Left to manual verification on purpose.
+- **Task 7, process:** the task-scoped spec+quality review never returned a verdict (two 529s, then
+  stopped). The whole-branch final review is therefore the *first* independent review this diff gets.
+  Weigh it accordingly, and see ruling R7-3.
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
