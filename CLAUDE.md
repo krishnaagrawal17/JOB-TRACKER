@@ -15,8 +15,8 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1, 2 and 3 of 7
-are complete and reviewed; **Task 4 is next and has NOT been started.** Resume with
+**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1–4 of 7 are
+complete and reviewed; **Task 5 is next and has NOT been started.** Resume with
 `superpowers:subagent-driven-development` against
 `docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
 `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
@@ -60,8 +60,8 @@ Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix w
 `main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
 exists here, having been renamed `main` during the repo split.
 
-Current: branch **`auth-phase-1`** at `b8f0b84` (3 of 7 auth tasks landed), **220/220 tests passing
-across 35 files**, `tsc --noEmit` clean, working tree clean.
+Current: branch **`auth-phase-1`** at `b0c7085` (4 of 7 auth tasks landed), **226/226 tests passing
+across 36 files**, `tsc --noEmit` clean, working tree clean.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -203,6 +203,27 @@ Three things about this task worth not re-deriving:
    because the controller's own dispatch offered the hand-copied variant as acceptable. **When
    replacing a manual check with a unit test, the test must call the production code path — an
    exported predicate used by `main()`, never a duplicated literal.**
+
+**Task 4 (login rate limiter) — complete, `b0c7085`.** Spec ✅ on a verbatim transcription of the
+brief; one Important finding fixed in one round. `lib/auth/rateLimit.ts` is process-local in-memory
+state: 5 attempts, then a 15-minute lockout, with `now` injectable so the tests never touch the real
+clock. A server restart clears the lockout, which is deliberate and documented in the file.
+
+Two things about it to carry forward:
+
+1. **The module only self-heals inside `isLockedOut()`.** `recordFailure()` has no time awareness
+   and will happily increment a stale counter if called without an intervening `isLockedOut()`
+   call. This is safe **only** because Task 5's login route gates on `isLockedOut()` before every
+   password check. If that ordering is ever broken, a user who waits out a lockout gets re-locked by
+   a single failure. Deferred as a Minor at review, carried explicitly into Task 5's dispatch.
+2. **The test that nearly wasn't there.** The brief's five test cases never verified that `failures`
+   is reset when the lockout expires — only the boolean `isLockedOut` returns. Deleting
+   `failures = 0;` from `rateLimit.ts` left all five passing while turning a lockout into a
+   near-permanent one (one post-expiry failure would immediately re-lock for another 15 minutes).
+   Ruling R4-1 added a sixth test for that transition, and it was validated by *mutation*: with that
+   line deleted, the new test is the only one of the six that fails. **That mutation check is how a
+   test defending a side effect should be validated — asserting a return value that is identical
+   either way proves nothing.**
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
