@@ -15,8 +15,9 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1–5 of 7 are
-complete and reviewed; **Task 6 is next and has NOT been started.** Resume with
+**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1–6 of 7 are
+complete and reviewed; **Task 7 — the one that actually locks the app — is next and has NOT been
+started.** Resume with
 `superpowers:subagent-driven-development` against
 `docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
 `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
@@ -60,8 +61,8 @@ Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix w
 `main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
 exists here, having been renamed `main` during the repo split.
 
-Current: branch **`auth-phase-1`** at `824c32c` (5 of 7 auth tasks landed), **236/236 tests passing
-across 38 files**, `tsc --noEmit` clean, working tree clean.
+Current: branch **`auth-phase-1`** at `0b804a3` (6 of 7 auth tasks landed), **250/250 tests passing
+across 40 files**, `tsc --noEmit` clean, `npm run build` green at 13 routes, working tree clean.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -247,6 +248,42 @@ time, no Critical or Important findings, no fix round. `POST /api/auth/login` an
   do not defend the guard. The Task 4 lesson applies — a test defending a guard should be validated
   by mutation, and an added test file should have its own RED capture mandated (the logout test
   never got one).
+
+**Task 6 (login page + header logout) — complete, `0b804a3`.** `components/LoginForm.tsx`,
+`app/login/page.tsx`, `components/SiteHeader.tsx`, their tests, and `app/layout.tsx` rewired to use
+`SiteHeader`. Two rounds: one plan defect, one Critical security finding. **This task produced the
+most important security fix of the phase — read the second item.**
+
+1. **A plan defect: the brief's own test could not pass against the brief's own component.** The
+   double-submit test re-queried the button by accessible name for its second click, but the label
+   becomes "Logging in…" while in flight and `/log in/i` does not match that ("logg" never gives
+   `log` + space + `in`). Ruling **R6-1** fixed the *test*, not the component — capture the button
+   reference before submitting and click that, per `AddJobDialog.test.tsx`'s existing pattern, plus
+   assert it is disabled. Caveat recorded honestly: the ruling's stated rationale that this
+   "exercises both guards" was **wrong**. `userEvent` suppresses clicks on a disabled control, so
+   `handleSubmit`'s `if (submitting) return` is never re-entered. The added `toBeDisabled()`
+   assertion is what defends `disabled={submitting}`; the early return is defended by nothing and is
+   reachable only via the untested Enter-key submit path.
+2. **`safeNextPath` shipped with an exploitable open redirect, inherited verbatim from the brief.**
+   Its four checks did not reject control characters. `?next=%2F%09%2Fevil.com` arrives as
+   slash-TAB-slash-`evil.com`, passes all four (truthy, starts with `/`, not `//`, no backslash),
+   and then `new URL(...)` resolves it to `https://evil.com/` — because **WHATWG URL parsing strips
+   tab/LF/CR before resolving**. The router then takes its external-URL path and performs a
+   full-page navigation. Send the owner a `/login?next=…` link, they log in, they land on the
+   attacker's site — the exact attack the function's own comment claimed to defend, on the app whose
+   entire reason for this phase is going onto a public tunnel. Ruling **R6-2** fixed it wider than
+   the three reported characters: the new **first** check is
+   `if (value && /[\x00-\x1F\x7F]/.test(value)) return '/';`, rejecting all of C0 plus DEL.
+   **Do not narrow this back to `\t\n\r`.** The re-review's residual sweep confirmed nothing else
+   survives: percent-decoding happens before the function sees the value, double-encoding fails
+   `startsWith('/')`, space is not stripped the way tab/LF/CR are, and Unicode solidus look-alikes
+   are not path separators in the URL state machine.
+
+**The process lesson this task paid for, twice:** a test only counts if it fails when the thing it
+defends is removed. Both this task's new tests and Task 4's were validated by *mutation* — revert
+the guard, watch the test go red, restore it. Task 5's fail-closed tests were not, and the reviewer
+showed they would pass with the guard deleted. Do this for any test defending a guard or a side
+effect.
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
