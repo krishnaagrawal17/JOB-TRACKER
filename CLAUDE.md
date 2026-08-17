@@ -15,8 +15,8 @@ Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026
 
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1–4 of 7 are
-complete and reviewed; **Task 5 is next and has NOT been started.** Resume with
+**Work in flight: single-user authentication, on branch `auth-phase-1`.** Tasks 1–5 of 7 are
+complete and reviewed; **Task 6 is next and has NOT been started.** Resume with
 `superpowers:subagent-driven-development` against
 `docs/superpowers/plans/2026-08-16-job-tracker-auth.md`, reading the live ledger at
 `.superpowers/sdd/2026-08-16-job-tracker-auth/progress.md` first — tasks with a `Task <N>: complete`
@@ -60,8 +60,8 @@ Phase 1: all 21 plan tasks done plus the final whole-branch review and its fix w
 `main` as a fast-forward on 2026-08-16 at `9474159`. The branch `job-tracker-phase-1` no longer
 exists here, having been renamed `main` during the repo split.
 
-Current: branch **`auth-phase-1`** at `b0c7085` (4 of 7 auth tasks landed), **226/226 tests passing
-across 36 files**, `tsc --noEmit` clean, working tree clean.
+Current: branch **`auth-phase-1`** at `824c32c` (5 of 7 auth tasks landed), **236/236 tests passing
+across 38 files**, `tsc --noEmit` clean, working tree clean.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
@@ -224,6 +224,29 @@ Two things about it to carry forward:
    line deleted, the new test is the only one of the six that fails. **That mutation check is how a
    test defending a side effect should be validated — asserting a return value that is identical
    either way proves nothing.**
+
+**Task 5 (login + logout API routes) — complete, `824c32c`.** Spec ✅ and quality approved first
+time, no Critical or Important findings, no fix round. `POST /api/auth/login` and
+`POST /api/auth/logout`, both `runtime = 'nodejs'`, 10 new tests.
+
+- **The `isLockedOut()` call is the first statement in the login handler and must stay there.** Two
+  independent reasons: it is what makes a lockout return 429 even for a *correct* password, and
+  `rateLimit.ts` clears an expired lockout only as a side effect inside that call. The reviewer
+  confirmed no code path reaches `recordFailure()` without passing it first, which closes Task 4's
+  carried-forward concern.
+- **Rate-limit boundary, traced by hand and matching the spec:** wrong attempts 1–5 each return
+  401 (the 5th sets the lockout but has already returned its 401); the 6th, and any attempt while
+  locked out *including a correct password*, returns 429.
+- Two controller rulings extended the brief here: **R5-1** added `logout/route.test.ts`, which the
+  brief omitted entirely — the logout route's whole job is invalidating the cookie, so it cannot
+  ship untested. **R5-2** extended the fail-closed test to a missing `AUTH_SESSION_SECRET`, since
+  the route checks both env vars in one condition.
+- **Worth knowing: R5-2 bought less than intended.** The reviewer showed that deleting the
+  `if (!hash || !secret)` guard would still crash downstream (`split(':')` on undefined) and still
+  surface as a 500, so both fail-closed tests would probably still pass. They document intent but
+  do not defend the guard. The Task 4 lesson applies — a test defending a guard should be validated
+  by mutation, and an added test file should have its own RED capture mandated (the logout test
+  never got one).
 
 Fix rounds that went beyond a plain implement→review pass, worth knowing about: Task 14 needed
 zod validation of LLM array output before persisting (the brief's sample skipped it); Task 18
