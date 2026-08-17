@@ -41,6 +41,11 @@ describe('LoginForm', () => {
     'next=/\\evil.com',
     'next=http://evil.com/path',
     '',
+    // Control-character bypass: WHATWG URL parsing strips these before resolving, so a
+    // value that looks like a same-origin relative path here can still resolve externally.
+    'next=/\t/evil.com',
+    'next=/\n/evil.com',
+    'next=/\r/evil.com',
   ])('falls back to / for hostile or missing next (%j)', async (query) => {
     search = query;
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200 });

@@ -7,8 +7,12 @@ import { Button } from '@/components/ui/button';
 /**
  * Only same-origin absolute paths are accepted. Without this, `?next=https://evil.com`
  * would bounce a freshly authenticated user to an attacker's page — an open redirect.
+ * Control characters (C0 range and DEL) are rejected first: WHATWG URL parsing strips them
+ * before resolving, so a value that looks like a safe relative path here — e.g. `/\t/evil.com`
+ * — can still resolve to an external origin once the router builds a URL from it.
  */
 function safeNextPath(value: string | null): string {
+  if (value && /[\x00-\x1F\x7F]/.test(value)) return '/';
   if (!value) return '/';
   if (!value.startsWith('/')) return '/';
   if (value.startsWith('//')) return '/';
