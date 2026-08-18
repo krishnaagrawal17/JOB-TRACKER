@@ -13,22 +13,20 @@ one-page company brief) is generated via OpenRouter and persisted on the card.
 Full product/architecture detail: `docs/superpowers/specs/2026-08-15-job-tracker-design.md`
 Full implementation plan (21 TDD tasks, 189 steps): `docs/superpowers/plans/2026-08-15-job-tracker-phase-1.md`
 
-## ⚠️ THE APP IS CURRENTLY 503 ON EVERY REQUEST. THIS IS BY DESIGN, NOT A BUG.
+## ✅ THE AUTH GATE IS CONFIGURED AND THE APP RUNS. (It was 503 everywhere until 2026-08-18.)
 
-Read this before touching anything or concluding the app is broken. As of 2026-08-17 the auth gate
-is **landed** on `auth-phase-1` (`fca7a61`) but **`npm run set-password` has still never been run**,
-so `middleware.ts` fail-closes on the missing `AUTH_SESSION_SECRET`/`AUTH_PASSWORD_HASH` and every
-request returns 503. `/login` itself still loads — that is exactly what the R7-1 test defends — but
-logging in cannot succeed until those keys exist.
+Earlier revisions of this file opened with a warning that every request returned 503. **That is no
+longer true as of 2026-08-18**: the password setup was completed, so `AUTH_PASSWORD_HASH` and
+`AUTH_SESSION_SECRET` now exist in `.env.local`, `middleware.ts` no longer fail-closes, and the
+owner has logged in through a browser. `npm run dev` serves normally.
 
-Two ways to a usable app:
-- **Run `npm run set-password`** (see the owner-action list below). This is the intended path.
-- **`git checkout main`** — Phase 1, no gate at all. Use this if the goal is to demo or use the
-  tracker rather than to finish auth.
+If 503s ever return, the cause is almost certainly a missing or malformed auth env var — check that
+`.env.local` holds all three keys before suspecting the code.
 
-Do not "fix" the 503 by weakening or bypassing the gate, and do not add an `AUTH_ENABLED` flag —
-its absence is a deliberate design decision (an auth system with an off switch is how auth ends up
-off in production).
+Still load-bearing: do not "fix" a 503 by weakening or bypassing the gate, and do not add an
+`AUTH_ENABLED` flag — its absence is a deliberate design decision (an auth system with an off switch
+is how auth ends up off in production). `git checkout main` is Phase 1 with no gate at all, if the
+tracker is ever needed without auth.
 
 ## PICK UP HERE (next session)
 
@@ -67,26 +65,42 @@ review dispatches and to the merge.
 Auth is being added because the app is going onto a tunnel, which invalidates the local-only
 assumption.
 
-### What the owner still has to do by hand — none of it has been done yet
+### Owner setup — DONE on 2026-08-18. Read this before asking the owner to run anything.
 
-The user was given this full sequence on 2026-08-17 and **confirmed none of it**, including the
-backup. No automated test substitutes for any of it.
+The password setup and the local verification were completed on 2026-08-18. **Do not re-run or
+re-request them.** What was done, and what it is evidence of:
 
-1. **Back up `.env.local` first: `cp .env.local ~/env-backup`.** It holds the live
-   `OPENROUTER_API_KEY` and `npm run set-password` rewrites the file.
-2. **`npm run set-password`** (interactive, hidden stdin — the owner must run it; a subagent cannot
-   and will hang if it tries). Then the brief's manual Steps 3–4: confirm `OPENROUTER_API_KEY`,
-   `AUTH_PASSWORD_HASH` and `AUTH_SESSION_SECRET` each appear exactly once and the API key's value
-   is unchanged; re-run the script and confirm the session secret is **preserved, not regenerated**.
-3. The plan's manual verification close-out: redirect to `/login?next=/`; wrong password → error,
-   six attempts → lockout; correct password → the board with the existing job still present; reload
-   stays logged in; **Log out** returns to `/login` and Back does not restore the board; `curl` on
-   `/api/jobs` → 401; `/login?next=https://example.com` lands on `/`, **not** example.com (this one
-   is the open redirect that was found and fixed mid-plan — worth actually doing); then
-   `npm run build && npm start` and log in over the tunnel from a phone.
-4. Worth checking opportunistically while in there: that `/login` renders **styled**. Nothing in the
-   suite covers `config.matcher`, so if its `_next/static` exclusion were wrong the login page would
-   load without CSS/JS — invisible to every test.
+1. `.env.local` backed up to `~/env-backup` before anything was written.
+2. **Password set — but not via the interactive prompt.** `npm run set-password` blocks on hidden
+   stdin and hangs any agent that runs it. Instead a small wrapper imported the real script's
+   exported `hashPasswordForSetup`, `upsertEnv` and `hasSessionSecret`, with the password supplied
+   through `read -s` so it never entered the chat transcript. **Reuse this pattern:** those helpers
+   are exported precisely so they can be driven without the prompt, and the script's main-module
+   guard means importing it triggers no prompting, no writes and no `process.exit`.
+3. Env verified without ever printing a secret: all three keys present exactly once,
+   `AUTH_PASSWORD_HASH` well-formed (32-hex salt : 64-hex key), `AUTH_SESSION_SECRET` 64 hex chars,
+   `OPENROUTER_API_KEY` byte-identical to the backup. Session-secret preservation on re-run was
+   confirmed by calling `hasSessionSecret` against the live file rather than by running the script a
+   second time.
+4. **`.env.local` was left world-readable (`0644`) by the write and was chmod'ed to `600`.** Root
+   cause worth remembering: the script passes `{ mode: 0o600 }` to `fs.writeFileSync`, but **that
+   mode applies only when the file is created** — `.env.local` already existed, so it was silently a
+   no-op. Anyone touching that script should use an explicit `fs.chmodSync` instead. No test covers
+   this, and the failure is invisible.
+5. Gate probed by curl against the running dev server: `/` and `/profile` → 307 to `/login?next=…`,
+   `/login` → 200, `/api/jobs` → 401 JSON, wrong-password POST → 401.
+6. **The owner logged in through a real browser and reported it "working nicely."** The login page
+   renders styled, which is the only real check on `config.matcher`'s `_next/static` exclusion.
+
+**Not yet confirmed, and each needs a human:** the lockout after six wrong attempts; that Log out
+followed by Back does not restore the board from cache; and the open-redirect check — visiting
+`/login?next=https://example.com` **and completing the login**, which must land on the board rather
+than example.com. The owner confirmed only that that URL shows the login prompt, which does not
+exercise the redirect at all. That one is worth finishing: it is the Critical bug found and fixed
+mid-plan (ruling R6-2), and the input passed all four of `safeNextPath`'s original checks.
+
+**The one thing local testing cannot cover:** `npm run build && npm start`, then log in over the
+tunnel from a phone. That is the entire reason this phase exists.
 
 Also open, smaller: **push this repo to GitHub** — decided yes, private, but not yet done. Do the
 git-identity fix first (below), because it is far cheaper before a push than after.
@@ -115,8 +129,9 @@ exists here, having been renamed `main` during the repo split.
 
 Current: branch **`auth-phase-1`** at `fca7a61` (all 7 auth tasks' code landed; Task 7's review still
 owed), **261/261 tests passing across 41 files**, `tsc --noEmit` clean, `npm run build` green at 13
-routes plus a separate 34.6 kB Middleware Edge bundle, working tree clean. **The app returns 503
-everywhere until `npm run set-password` is run — see the warning at the top of this file.**
+routes plus a separate 34.6 kB Middleware Edge bundle. **Auth is configured as of 2026-08-18 and the
+app runs — the owner has logged in through a browser.** See the setup section above for exactly what
+was verified and the three checks still owed.
 
 Built via `superpowers:subagent-driven-development`: fresh implementer subagent per task,
 task-scoped spec+quality review after each, fix loops on findings, controller ledger at
