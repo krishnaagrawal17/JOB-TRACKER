@@ -92,12 +92,15 @@ re-request them.** What was done, and what it is evidence of:
 6. **The owner logged in through a real browser and reported it "working nicely."** The login page
    renders styled, which is the only real check on `config.matcher`'s `_next/static` exclusion.
 
-**Not yet confirmed, and each needs a human:** the lockout after six wrong attempts; that Log out
-followed by Back does not restore the board from cache; and the open-redirect check — visiting
-`/login?next=https://example.com` **and completing the login**, which must land on the board rather
-than example.com. The owner confirmed only that that URL shows the login prompt, which does not
-exercise the redirect at all. That one is worth finishing: it is the Critical bug found and fixed
-mid-plan (ruling R6-2), and the input passed all four of `safeNextPath`'s original checks.
+7. **The open-redirect fix is CONFIRMED in a real browser (2026-08-18).** The owner visited
+   `/login?next=https://example.com`, completed the login, and landed on **their own board** — not
+   example.com. This is the Critical finding from ruling R6-2, and it is the one manual check that
+   genuinely could not be replaced by a test: the malicious input passed all four of
+   `safeNextPath`'s original checks and still resolved to the attacker's origin, because WHATWG URL
+   parsing strips tab/LF/CR before resolving. **Do not narrow the `/[\x00-\x1F\x7F]/` guard.**
+
+**Not yet confirmed, and each needs a human:** the lockout after six wrong attempts, and that Log
+out followed by Back does not restore the board from browser cache.
 
 **The one thing local testing cannot cover:** `npm run build && npm start`, then log in over the
 tunnel from a phone. That is the entire reason this phase exists.
