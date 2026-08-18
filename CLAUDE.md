@@ -485,16 +485,16 @@ thing in this file for anyone touching `Board.tsx`:
 
 ## Where the code lives
 
-- **Its own standalone git repository** at `/Users/krishnaagrawal/Claude-Code/JOB_TRACKER`, on
-  branch `main`, with **no remotes configured**. It is *not* a worktree and has no relationship to
-  the repo at `/Users/krishnaagrawal/Claude-Code` beyond sitting inside that folder on disk (where
-  it is gitignored).
+- **Its own standalone git repository** at `/Users/krishnaagrawal/Claude-Code/JOB_TRACKER`. It is
+  *not* a worktree and has no relationship to the repo at `/Users/krishnaagrawal/Claude-Code` beyond
+  sitting inside that folder on disk (where it is gitignored).
+- **`origin` = https://github.com/krishnaagrawal17/JOB-TRACKER.git — private.** Pushed 2026-08-18.
+  Both `main` and `auth-phase-1` are on the remote and tracking. This is a dedicated repo, **not**
+  the Leadership one — see the history note below for why that distinction matters.
 - Full app code under `app/`, `components/`, `lib/` — all 21 tasks landed. `MEMORY.md` at the repo
   root is the running project log (project details, steps completed, what's pending).
-- **Before any first `git push`, add a remote deliberately.** There is no `origin` right now, which
-  is intentional — see the history note below.
 
-### Repo history (2026-08-16) — why there are no remotes
+### Repo history (2026-08-16) — why this repo has its own dedicated remote
 
 This project used to be a worktree of `/Users/krishnaagrawal/Claude-Code`, a single repo that also
 hosted two unrelated projects: **Leadership** (a Vite app, also at repo root) and **sketch2app** (in
@@ -507,24 +507,41 @@ branches never met.
 
 The split preserved all 41 commits by swapping in a fresh `.git` rather than copying files, which
 kept the gitignored-but-valuable `.env.local` and `.superpowers/` ledger in place. `origin` was
-removed deliberately so this repo cannot push into Leadership. **If you add a remote, create a new,
-empty GitHub repo for the job tracker — do not reuse the Leadership one.**
+removed deliberately so this repo could not push into Leadership. That was honoured: the remote added
+on 2026-08-18 is a new, dedicated repo (`JOB-TRACKER`). **Never point this repo at the Leadership one.**
 
-### Before the first push to GitHub
+### The GitHub push — DONE 2026-08-18
 
-Decided: **yes, push it, and make it private.** Private because the design docs describe the
-owner's personal job search; it can be flipped public later, which is not reversible in the other
-direction. If it does go public, first rewrite `CLAUDE.md`'s opening line — it describes the
-project as being for "Krishna (non-technical job seeker)", which is not what a hiring manager
-should read alongside the code.
+Pushed to **https://github.com/krishnaagrawal17/JOB-TRACKER**, **private**. Private because the
+design docs describe the owner's personal job search; it can be flipped public later, which is not
+reversible in the other direction. **If it ever goes public, first rewrite `CLAUDE.md`'s opening
+line** — it describes the project as being for "Krishna (non-technical job seeker)", which is not
+what a hiring manager should read alongside the code. That is still pending and still matters.
 
-**Fix the git identity first.** Commits are currently authored as
-`krishnaagrawal@Krishnas-MacBook-Air.local`, an address git invented from the machine name.
-GitHub cannot link that to an account, so none of this work would appear on the user's profile —
-which matters, because the user is job hunting and this is a portfolio piece. Setting
-`git config user.email` fixes future commits; the existing ones need a history rewrite, which is
-**clean to do while nothing has been pushed and nobody else has a copy**, and progressively more
-annoying afterwards.
+**The git identity was fixed by rewriting history before the push, and must not be re-litigated.**
+All commits had been authored to `krishnaagrawal@Krishnas-MacBook-Air.local` and
+`…-Air-2.local` — addresses git invented from the machine name, which GitHub cannot link to an
+account. Left alone, none of this work would have appeared on the owner's profile, which matters
+because they are job hunting and this is a portfolio piece.
+
+- **Identity now used:** `Krishna Agrawal <302115059+krishnaagrawal17@users.noreply.github.com>`,
+  set **locally in this repo only** (`git config user.email`), not globally.
+- **Why the noreply alias rather than a real address:** the owner's GitHub account email differs
+  from the address on file elsewhere, and the alias is *owned by* account `krishnaagrawal17`
+  (numeric id `302115059`), so attribution is certain. A real email only links if it is verified on
+  the account, and a typo would silently leave every commit unattributed. It also keeps the owner's
+  address off a repo that may go public.
+- **All 64 commits were rewritten** with `git filter-branch --env-filter` over `main` and
+  `auth-phase-1`, before anything was pushed — the cheap moment to do it. Verified afterwards:
+  zero remaining `.local` authors, `main`'s tree byte-identical to its pre-rewrite backup, and
+  `main` still an ancestor of `auth-phase-1`.
+- **Local safety branches `backup-before-rewrite-main` and `backup-before-rewrite-auth`** hold the
+  original pre-rewrite history. They were deliberately **not** pushed. Safe to delete once the
+  remote has been eyeballed.
+- **Other projects in this workspace are unaffected** — `sketch2app`, `Leadership` and
+  `model_council` still author commits to the machine-name address, because the fix was per-repo.
+  `model_council` is already pushed, so fixing it would need a force-push. Not done; the owner's
+  call.
 
 Push safety was verified on 2026-08-16: no `.env.local`, no `*.db` files, and the OpenRouter key
 appears in no tracked file and nowhere in the commit history. `.env.local.example` holds only
