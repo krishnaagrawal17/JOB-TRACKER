@@ -20,6 +20,10 @@ longer true as of 2026-08-18**: the password setup was completed, so `AUTH_PASSW
 `AUTH_SESSION_SECRET` now exist in `.env.local`, `middleware.ts` no longer fail-closes, and the
 owner has logged in through a browser. `npm run dev` serves normally.
 
+**`AUTH_PASSWORD_HASH` and `npm run set-password` were retired on 2026-09-30** by the multi-user
+conversion — see "Phase 2.5 — multi-user conversion" below. Only `AUTH_SESSION_SECRET` is read now;
+per-account passwords live hashed in the `users` table, set via `/register`, not an env var.
+
 If 503s ever return, the cause is almost certainly a missing or malformed auth env var — check that
 `.env.local` holds all three keys before suspecting the code.
 
@@ -30,7 +34,15 @@ tracker is ever needed without auth.
 
 ## PICK UP HERE (next session)
 
-**Work in flight: single-user authentication, on branch `auth-phase-1` at `fca7a61`.** All 7 tasks'
+**Update 2026-09-30: the single-user scope described in this section has been superseded.** The app
+was converted to multi-user (accounts via `/register`, per-user data) on top of this branch, in an
+uncommitted working-tree change that this session found, completed, tested, and verified live. Full
+detail: "Phase 2.5 — multi-user conversion" further down. The Task 7 review-still-owed narrative
+below is preserved as history (it explains real lessons — R7-1/R7-2/R7-3, the mutation-testing
+discipline) but is no longer the next action; nothing here is currently blocked on it.
+
+**Original Task 7 pickup note, kept for history:** work in flight was single-user authentication, on
+branch `auth-phase-1` at `fca7a61`. All 7 tasks'
 code is now written and committed. **Task 7's code is LANDED but its task-scoped review never
 returned a verdict**, so Task 7 has no `Task <N>: complete` line and is not done.
 
@@ -212,11 +224,14 @@ resuming**; it records which tasks are done and every ruling made without asking
 directly invalidates the "sole local user" premise behind the accepted SSRF triage in
 `lib/fetchJob.ts`. A password gate makes that premise true again instead of merely assumed.
 
-**Scope, decided with the user and not to be re-litigated:** single-user, not multi-user — one
-password, one board. Friends cannot have their own trackers; multi-user was explicitly considered
-and declined (it needs a `users` table, an owner column on all three tables, and a filter on every
-query). Tunnel, not a VPS, so SQLite keeps working and the Mac must be awake. Hand-rolled rather
-than Auth.js, **zero new dependencies**.
+**Scope as originally decided with the user (SUPERSEDED 2026-09-30, kept for history):** single-user,
+not multi-user — one password, one board. Friends cannot have their own trackers; multi-user was
+explicitly considered and declined (it needs a `users` table, an owner column on all three tables,
+and a filter on every query). **That decision was reversed**: a multi-user conversion doing exactly
+the previously-declined work (`users` table, `user_id` on `jobs`/`profile`, a filter on every query)
+was built and completed — see "Phase 2.5 — multi-user conversion" below. Tunnel, not a VPS, so
+SQLite keeps working and the Mac must be awake. Hand-rolled rather than Auth.js, **zero new
+dependencies** (still true post-conversion).
 
 **The constraint that shapes the implementation, and the easiest thing to get wrong:** Next.js
 middleware runs on the **Edge runtime, which has no `node:crypto`**. So `lib/auth/session.ts` uses
@@ -482,6 +497,98 @@ thing in this file for anyone touching `Board.tsx`:
    new cross-cutting standard, add an explicit sweep task over everything written before it.
 3. When a test must mock the library under test, cover every real branch of the *calling* code.
    That single omission hid all three `Board.tsx` bugs above through 21 tasks of review.
+
+## Phase 2.5 — multi-user conversion (COMPLETE, 2026-09-30)
+
+**This reverses the "single-user, not multi-user, not to be re-litigated" decision above.** The
+code for it was found already written and uncommitted in the working tree at the start of this
+session — no spec or plan document exists for it, so unlike every other phase in this project it did
+not go through `superpowers:brainstorming` → `writing-plans` → `subagent-driven-development`. This
+session confirmed with the owner that the direction was intentional, then completed, tested, and
+verified it rather than writing a retroactive spec for already-built code.
+
+**What changed:**
+- New `users` table (`id`, `email` UNIQUE COLLATE NOCASE, `password_hash`, `created_at`). `jobs` and
+  `profile` each gained a `user_id` column (`REFERENCES users(id) ON DELETE CASCADE`), added via a
+  catch-and-ignore `ALTER TABLE` migration in `initSchema` for pre-existing DBs.
+- Every `lib/db.ts` query function for jobs/profile/kits now takes `userId` and filters or joins on
+  it — `getJobs`, `getJob`, `createJob`, `updateJob`, `deleteJob`, `getProfile`, `upsertProfile`,
+  `getKit`, `upsertKitField`, `editKitField`. `getKit` reaches `user_id` via a join to `jobs` since
+  `job_kits` itself has no owner column.
+- Every API route (`/api/jobs*`, `/api/profile*`) calls the new `lib/auth/getRequestUserId.ts` to
+  read the caller's id from the `X-User-Id` header and passes it into every `lib/db.ts` call.
+- `middleware.ts` verifies the session and, on success, forwards the authenticated `userId` to route
+  handlers via `X-User-Id` — a header set only by middleware itself, never by a client, so
+  `getRequestUserId` trusts it unconditionally. (Verified live: `NextResponse.next({ request:
+  { headers } })` encodes this as `x-middleware-request-x-user-id` on the response, which is what
+  `middleware.test.ts`'s "forwards X-User-Id header" test actually asserts against — see
+  `node_modules/next/dist/server/web/spec-extension/response.js`.)
+- `lib/auth/session.ts`'s token payload changed from `"{expiresAt}.{hmac}"` to
+  `"{userId}:{expiresAt}.{hmac}"` — the whole payload is HMAC'd, so tampering with either field
+  invalidates the signature. `verifySession` now returns `{ userId } | null` instead of `boolean`.
+- New `POST /api/auth/register` + `/register` page + `components/RegisterForm.tsx`: validates email
+  format and an 8-character-minimum password, hashes with the existing Task 2 scrypt path
+  (`lib/auth/password.ts`), rejects duplicate emails (case-insensitively, matching the `users.email`
+  collation) with 409, and signs a session cookie on success exactly like login does.
+  `components/LoginForm.tsx` gained an email field and a "Create one" link to `/register`.
+- `npm run set-password` / `scripts/set-password.mjs` (the old single-global-password setup script)
+  were **deleted**, along with `scripts/set-password.test.ts`. They implemented the retired
+  `AUTH_PASSWORD_HASH` model and had already been removed from `package.json`'s `scripts` before
+  this session found the working tree — keeping the files around after that would have been a
+  correct-looking script that wrote a value nothing reads anymore.
+
+**One real bug this session found and fixed, not present in the version found in the working
+tree:** `lib/auth/rateLimit.ts` was untouched by the original conversion and still had its Phase-2
+single-global-counter shape — `isLockedOut()`/`recordFailure()`/`clearFailures()` took no key at
+all, and the login route called them with no argument. In a multi-user app that means **one
+account's five failed login attempts 429-locks every other account for 15 minutes** — a
+cross-account denial-of-service, not merely a missing feature. Fixed by keying the module's map by
+normalized (trimmed, lowercased) email, and reordering `login/route.ts` so the lockout check runs
+*after* body parsing (it needs the email to key on) but still strictly before `verifyPassword` and
+before a session is issued — preserving both of Task 5's original reasons for checking it early
+(429s even a correct password while locked out; self-heals expired lockouts as a side effect).
+Verified live with curl against the running dev server: account A locked out after 5 wrong
+passwords, account B logged in normally in the same window. `lib/auth/rateLimit.test.ts` and
+`app/api/auth/login/route.test.ts` both gained a cross-account isolation test for this.
+
+**Test coverage added** (the working tree had zero tests for any of the new files):
+`lib/auth/getRequestUserId.test.ts`, `app/api/auth/register/route.test.ts` (10 cases, including the
+case-insensitive-duplicate-email path), `components/RegisterForm.test.tsx` (mirrors
+`LoginForm.test.tsx`'s existing pattern). `middleware.test.ts`'s pre-existing "forwards X-User-Id"
+test was a no-op (comment: "tested via integration" — no such integration test existed); it now
+makes a real assertion, per the note above.
+
+**Verified this session:** `tsc --noEmit` clean; **283/283 tests across 43 files** (was 269/41 before
+this session: +19 new-file tests, +1 login cross-account test, +2 rate-limit tests, −8 removed
+set-password tests); `npm run build` green at 14 routes including `/register` and
+`/api/auth/register`. Live end-to-end via curl against `npm run dev` (Chrome extension was not
+connected this session, so this is *not* a substitute for a human browser pass): registered two
+accounts, created a job under account A, confirmed account B's `/api/jobs` returns `[]` (isolation),
+logged A out and back in and confirmed the job persisted, hit the duplicate-email 409 path, and
+reproduced + confirmed the fix for the rate-limiter cross-account bug above.
+
+**Still needs a human in a real browser — nothing here substitutes for it:** `/login` and
+`/register` rendering styled (same class of risk as every earlier auth-gate check in this file —
+`config.matcher`'s exclusions and Tailwind/font loading are not unit-testable); the "Create one" /
+"Sign in" links between the two pages; and the actual UX of registering a second real account and
+confirming its board starts empty. `SiteHeader.tsx` was **not** touched — it still shows no
+per-account identity (email, avatar, a "my account" link), so two logged-in users would see an
+identical-looking header. Not a bug, just unbuilt; worth a decision from the owner before this goes
+out to anyone but them.
+
+**Open product question, not an implementation one — flagged, not decided:** registration is
+currently open to anyone who can reach `/register`, with no invite code, admin approval, or other
+gate. Once this app is on a public tunnel, that means anyone who finds the URL can create their own
+account and board. That may be exactly the intended point of reversing the single-user decision
+(letting friends have their own trackers, which is literally what the original scope note said was
+being declined) — but it was not re-confirmed with the owner in those terms, only confirmed that
+finishing the already-written multi-user code was wanted. Worth a explicit yes/no before wide
+exposure.
+
+The existing SSRF/prompt-injection acceptances under "Known-and-accepted issues" below were reasoned
+about under a single-attacker-is-the-owner threat model. Multi-user changes that model: any
+registered account can still trigger `lib/fetchJob.ts`'s unrestricted server-side fetch. Not fixed
+here — flagging it as a reason to revisit that section if registration stays open to strangers.
 
 ## Where the code lives
 

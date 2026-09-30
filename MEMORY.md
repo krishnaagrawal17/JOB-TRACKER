@@ -49,6 +49,17 @@ plan (21 tasks): `docs/superpowers/plans/2026-08-15-job-tracker-phase-1.md`.
   slug with `web_search` pricing present, no change needed; confirmed `npm test` (171/171),
   `tsc --noEmit`, and `npm run build` all pass clean; appended behavioral guidelines to the
   existing `CLAUDE.md` and created this `MEMORY.md`.
+- 2026-09-30 — Phase 2.5: found a substantial, uncommitted multi-user conversion already sitting in
+  the working tree on `auth-phase-1` (users table, per-user `jobs`/`profile`, `/register`,
+  `getRequestUserId`) with no spec, no plan, and no tests — reversing the earlier "single-user, not
+  to be re-litigated" decision. Confirmed with the owner this was intentional, then finished it:
+  fixed a real cross-account DoS in `lib/auth/rateLimit.ts` (a global lockout that let one account's
+  failed logins lock out every account — now keyed per email), added the missing test coverage
+  (`getRequestUserId`, register route, `RegisterForm`, a real assertion in the middleware
+  X-User-Id test), deleted the now-orphaned `scripts/set-password.*`, and verified: `tsc --noEmit`
+  clean, 283/283 tests across 43 files, `npm run build` green at 14 routes, and a live curl-driven
+  end-to-end pass against `npm run dev` (two accounts, job isolation, logout/login, duplicate-email
+  409, reproduced-then-fixed the rate-limiter bug). Full detail in `CLAUDE.md`'s "Phase 2.5" section.
 
 ## Currently Pending
 
@@ -60,3 +71,10 @@ plan (21 tasks): `docs/superpowers/plans/2026-08-15-job-tracker-phase-1.md`.
   add by paste, full drag-and-drop-then-reload check, Generate Kit + Regenerate, resume upload
   PDF/DOCX, about-me affecting a later generation) — deferred from Task 21 for lack of an API key.
 - Decide when/whether to merge `job-tracker-phase-1` into `main`.
+- **A human browser pass over `/login` and `/register`** (styling, the cross-links between them) —
+  the Chrome extension was not connected this session, so Phase 2.5 was only verified via curl, not
+  visually.
+- **Decide whether `/register` should stay open to anyone who reaches it**, once the app is on a
+  public tunnel — flagged but not decided; see CLAUDE.md's Phase 2.5 section.
+- `components/SiteHeader.tsx` shows no per-account identity — two logged-in users see an identical
+  header. Not built yet.
