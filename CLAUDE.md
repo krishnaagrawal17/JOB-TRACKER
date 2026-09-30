@@ -590,6 +590,21 @@ about under a single-attacker-is-the-owner threat model. Multi-user changes that
 registered account can still trigger `lib/fetchJob.ts`'s unrestricted server-side fetch. Not fixed
 here — flagging it as a reason to revisit that section if registration stays open to strangers.
 
+**"Forgot password" (email a reset code) — proposed 2026-09-30, NOT built. Do not silently add it;
+re-ask first if it comes up again.** The owner asked for a "Forgot password?" button that emails a
+reset code. Went through `superpowers:brainstorming` (classified architectural — no existing reset
+flow to extend). The one blocking design question was how to actually send email: this app has had
+a "zero new dependencies" rule since Phase 2. Options presented: **Resend/SendGrid** (a new external
+account + API key, callable via plain `fetch` like `lib/openrouter.ts` already does, no new npm
+dependency) or **Gmail SMTP via an App Password** (no new account, but requires adding `nodemailer`
+since hand-rolling SMTP is fragile and security-sensitive — the one path that breaks the
+dependency rule). The owner chose "use my own email" (Gmail), but on hearing it needs both a
+Gmail App Password (a Google Account setting only they can change) **and** the new `nodemailer`
+dependency, declined: *"No, leave it. I do not want to do this."* No code was written — the
+brainstorming session ended at the design-approval gate, exactly as it's supposed to when the
+answer is no. If this is revisited, start from Resend/SendGrid instead of Gmail+nodemailer unless
+the owner specifically re-raises the dependency trade-off.
+
 ## Where the code lives
 
 - **Its own standalone git repository** at `/Users/krishnaagrawal/Claude-Code/JOB_TRACKER`. It is
