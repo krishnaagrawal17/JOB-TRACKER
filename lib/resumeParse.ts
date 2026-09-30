@@ -5,7 +5,9 @@ const PDF_MIMETYPE = 'application/pdf';
 const DOCX_MIMETYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export async function extractPdfText(buffer: Buffer): Promise<string> {
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  // disableFontFace stops PDF.js from fetching external font files (e.g. FoxitSymbol.pfb).
+  // We only need text extraction, so font rendering is irrelevant and this is safe.
+  const pdf = await getDocumentProxy(new Uint8Array(buffer), { disableFontFace: true });
   const { text } = await extractText(pdf, { mergePages: true });
   return text.trim();
 }
