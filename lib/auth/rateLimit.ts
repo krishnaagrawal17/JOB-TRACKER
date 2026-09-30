@@ -1,36 +1,50 @@
 /**
- * In-memory brute-force protection for the login route.
+ * In-memory brute-force protection for the login route, keyed per email.
  *
- * Deliberately process-local: this app is single-user and single-process. A
- * restart clears the lockout, which is not meaningfully exploitable by someone
- * who cannot restart the server.
+ * Deliberately process-local: this app is multi-user but single-process. A
+ * restart clears every lockout, which is not meaningfully exploitable by
+ * someone who cannot restart the server. Keying by email (rather than a
+ * single global counter) is load-bearing now that there's more than one
+ * account: a global counter would let one user's failed attempts lock every
+ * other user out of the app.
  */
 export const MAX_ATTEMPTS = 5;
 export const LOCKOUT_MS = 15 * 60 * 1000;
 
-let failures = 0;
-let lockedUntil = 0;
+interface Entry {
+  failures: number;
+  lockedUntil: number;
+}
 
-export function isLockedOut(now: number = Date.now()): boolean {
-  if (lockedUntil === 0) return false;
-  if (now >= lockedUntil) {
-    failures = 0;
-    lockedUntil = 0;
+const attempts = new Map<string, Entry>();
+
+function normalize(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function isLockedOut(email: string, now: number = Date.now()): boolean {
+  const key = normalize(email);
+  const entry = attempts.get(key);
+  if (!entry || entry.lockedUntil === 0) return false;
+  if (now >= entry.lockedUntil) {
+    attempts.delete(key);
     return false;
   }
   return true;
 }
 
-export function recordFailure(now: number = Date.now()): void {
-  failures += 1;
-  if (failures >= MAX_ATTEMPTS) lockedUntil = now + LOCKOUT_MS;
+export function recordFailure(email: string, now: number = Date.now()): void {
+  const key = normalize(email);
+  const entry = attempts.get(key) ?? { failures: 0, lockedUntil: 0 };
+  entry.failures += 1;
+  if (entry.failures >= MAX_ATTEMPTS) entry.lockedUntil = now + LOCKOUT_MS;
+  attempts.set(key, entry);
 }
 
-export function clearFailures(): void {
-  failures = 0;
-  lockedUntil = 0;
+export function clearFailures(email: string): void {
+  attempts.delete(normalize(email));
 }
 
 export function resetRateLimitForTests(): void {
-  clearFailures();
+  attempts.clear();
 }

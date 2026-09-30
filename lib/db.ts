@@ -25,8 +25,16 @@ export function getDb(): Db {
 
 export function initSchema(db: Db): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS profile (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       resume_text TEXT,
       resume_filename TEXT,
       resume_uploaded_at TEXT,
@@ -36,6 +44,7 @@ export function initSchema(db: Db): void {
 
     CREATE TABLE IF NOT EXISTS jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       stage TEXT NOT NULL DEFAULT 'wishlist'
         CHECK (stage IN ('wishlist','applied','interviewing','offer','rejected')),
       position INTEGER NOT NULL DEFAULT 0,
@@ -66,10 +75,73 @@ export function initSchema(db: Db): void {
       model_web TEXT
     );
   `);
+
+  // Safe migrations for existing DBs that have the old schema (no user_id columns).
+  // SQLite does not support IF NOT EXISTS on ALTER TABLE, so we catch the error.
+  for (const sql of [
+    'ALTER TABLE jobs ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE',
+    'ALTER TABLE profile ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE',
+  ]) {
+    try {
+      db.exec(sql);
+    } catch {
+      // Column already exists — that's fine.
+    }
+  }
 }
+
+// ---------------------------------------------------------------------------
+// User helpers
+// ---------------------------------------------------------------------------
+
+export interface User {
+  id: number;
+  email: string;
+  passwordHash: string;
+  createdAt: string;
+}
+
+interface UserRow {
+  id: number;
+  email: string;
+  password_hash: string;
+  created_at: string;
+}
+
+function rowToUser(row: UserRow): User {
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.password_hash,
+    createdAt: row.created_at,
+  };
+}
+
+export function createUser(db: Db, email: string, passwordHash: string): User {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare('INSERT INTO users (email, password_hash, created_at) VALUES (@email, @passwordHash, @now)')
+    .run({ email, passwordHash, now });
+  return getUserById(db, result.lastInsertRowid as number)!;
+}
+
+export function getUserByEmail(db: Db, email: string): User | undefined {
+  const row = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as UserRow | undefined;
+  return row ? rowToUser(row) : undefined;
+}
+
+export function getUserById(db: Db, id: number): User | undefined {
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+  return row ? rowToUser(row) : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
 
 interface JobRow {
   id: number;
+  user_id: number;
   stage: Stage;
   position: number;
   title: string | null;
@@ -114,20 +186,21 @@ export interface CreateJobInput {
   extraFields?: Record<string, string> | null;
 }
 
-export function createJob(db: Db, input: CreateJobInput): Job {
+export function createJob(db: Db, userId: number, input: CreateJobInput): Job {
   const stage = input.stage ?? 'wishlist';
   const now = new Date().toISOString();
   const maxPositionRow = db
-    .prepare('SELECT MAX(position) as maxPosition FROM jobs WHERE stage = ?')
-    .get(stage) as { maxPosition: number | null };
+    .prepare('SELECT MAX(position) as maxPosition FROM jobs WHERE stage = ? AND user_id = ?')
+    .get(stage, userId) as { maxPosition: number | null };
   const position = maxPositionRow.maxPosition === null ? 0 : maxPositionRow.maxPosition + 1;
 
   const result = db
     .prepare(
-      `INSERT INTO jobs (stage, position, title, company, location, salary, description, source_url, raw_input, extra_fields, created_at, updated_at)
-       VALUES (@stage, @position, @title, @company, @location, @salary, @description, @sourceUrl, @rawInput, @extraFields, @now, @now)`
+      `INSERT INTO jobs (user_id, stage, position, title, company, location, salary, description, source_url, raw_input, extra_fields, created_at, updated_at)
+       VALUES (@userId, @stage, @position, @title, @company, @location, @salary, @description, @sourceUrl, @rawInput, @extraFields, @now, @now)`
     )
     .run({
+      userId,
       stage,
       position,
       title: input.title,
@@ -141,16 +214,20 @@ export function createJob(db: Db, input: CreateJobInput): Job {
       now,
     });
 
-  return getJob(db, result.lastInsertRowid as number)!;
+  return getJob(db, userId, result.lastInsertRowid as number)!;
 }
 
-export function getJobs(db: Db): Job[] {
-  const rows = db.prepare('SELECT * FROM jobs ORDER BY stage, position').all() as JobRow[];
+export function getJobs(db: Db, userId: number): Job[] {
+  const rows = db
+    .prepare('SELECT * FROM jobs WHERE user_id = ? ORDER BY stage, position')
+    .all(userId) as JobRow[];
   return rows.map(rowToJob);
 }
 
-export function getJob(db: Db, id: number): Job | undefined {
-  const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as JobRow | undefined;
+export function getJob(db: Db, userId: number, id: number): Job | undefined {
+  const row = db
+    .prepare('SELECT * FROM jobs WHERE id = ? AND user_id = ?')
+    .get(id, userId) as JobRow | undefined;
   return row ? rowToJob(row) : undefined;
 }
 
@@ -166,51 +243,51 @@ export interface UpdateJobInput {
   extraFields?: Record<string, string> | null;
 }
 
-function moveJob(db: Db, job: Job, newStage: Stage, newPosition: number): void {
+function moveJob(db: Db, userId: number, job: Job, newStage: Stage, newPosition: number): void {
   if (job.stage === newStage) {
     if (newPosition === job.position) return;
     if (newPosition > job.position) {
       db.prepare(
         `UPDATE jobs SET position = position - 1
-         WHERE stage = @stage AND position > @oldPosition AND position <= @newPosition`
-      ).run({ stage: job.stage, oldPosition: job.position, newPosition });
+         WHERE user_id = @userId AND stage = @stage AND position > @oldPosition AND position <= @newPosition`
+      ).run({ userId, stage: job.stage, oldPosition: job.position, newPosition });
     } else {
       db.prepare(
         `UPDATE jobs SET position = position + 1
-         WHERE stage = @stage AND position >= @newPosition AND position < @oldPosition`
-      ).run({ stage: job.stage, oldPosition: job.position, newPosition });
+         WHERE user_id = @userId AND stage = @stage AND position >= @newPosition AND position < @oldPosition`
+      ).run({ userId, stage: job.stage, oldPosition: job.position, newPosition });
     }
-    db.prepare('UPDATE jobs SET stage = @stage, position = @position WHERE id = @id').run({
+    db.prepare('UPDATE jobs SET stage = @stage, position = @position WHERE id = @id AND user_id = @userId').run({
       stage: newStage,
       position: newPosition,
       id: job.id,
+      userId,
     });
     return;
   }
 
-  db.prepare('UPDATE jobs SET position = position - 1 WHERE stage = @stage AND position > @oldPosition').run({
-    stage: job.stage,
-    oldPosition: job.position,
-  });
-  db.prepare('UPDATE jobs SET position = position + 1 WHERE stage = @stage AND position >= @newPosition').run({
-    stage: newStage,
-    newPosition,
-  });
-  db.prepare('UPDATE jobs SET stage = @stage, position = @position WHERE id = @id').run({
+  db.prepare(
+    'UPDATE jobs SET position = position - 1 WHERE user_id = @userId AND stage = @stage AND position > @oldPosition'
+  ).run({ userId, stage: job.stage, oldPosition: job.position });
+  db.prepare(
+    'UPDATE jobs SET position = position + 1 WHERE user_id = @userId AND stage = @stage AND position >= @newPosition'
+  ).run({ userId, stage: newStage, newPosition });
+  db.prepare('UPDATE jobs SET stage = @stage, position = @position WHERE id = @id AND user_id = @userId').run({
     stage: newStage,
     position: newPosition,
     id: job.id,
+    userId,
   });
 }
 
-export function updateJob(db: Db, id: number, input: UpdateJobInput): Job | undefined {
-  const existing = getJob(db, id);
+export function updateJob(db: Db, userId: number, id: number, input: UpdateJobInput): Job | undefined {
+  const existing = getJob(db, userId, id);
   if (!existing) return undefined;
 
   const txn = db.transaction(() => {
     const isMove = input.stage !== undefined && input.position !== undefined;
     if (isMove) {
-      moveJob(db, existing, input.stage as Stage, input.position as number);
+      moveJob(db, userId, existing, input.stage as Stage, input.position as number);
     }
 
     const fieldMap: Record<string, unknown> = {};
@@ -228,26 +305,36 @@ export function updateJob(db: Db, id: number, input: UpdateJobInput): Job | unde
     const columns = Object.keys(fieldMap);
     if (columns.length > 0) {
       const setClause = columns.map((col) => `${col} = @${col}`).join(', ');
-      db.prepare(`UPDATE jobs SET ${setClause}, updated_at = @updatedAt WHERE id = @id`).run({
+      db.prepare(`UPDATE jobs SET ${setClause}, updated_at = @updatedAt WHERE id = @id AND user_id = @userId`).run({
         ...fieldMap,
         updatedAt: now,
         id,
+        userId,
       });
     } else if (isMove) {
-      db.prepare('UPDATE jobs SET updated_at = @updatedAt WHERE id = @id').run({ updatedAt: now, id });
+      db.prepare('UPDATE jobs SET updated_at = @updatedAt WHERE id = @id AND user_id = @userId').run({
+        updatedAt: now,
+        id,
+        userId,
+      });
     }
   });
 
   txn();
-  return getJob(db, id);
+  return getJob(db, userId, id);
 }
 
-export function deleteJob(db: Db, id: number): void {
-  db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+export function deleteJob(db: Db, userId: number, id: number): void {
+  db.prepare('DELETE FROM jobs WHERE id = ? AND user_id = ?').run(id, userId);
 }
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
 
 interface ProfileRow {
-  id: 1;
+  id: number;
+  user_id: number;
   resume_text: string | null;
   resume_filename: string | null;
   resume_uploaded_at: string | null;
@@ -257,7 +344,7 @@ interface ProfileRow {
 
 function rowToProfile(row: ProfileRow): Profile {
   return {
-    id: 1,
+    id: row.id,
     resumeText: row.resume_text,
     resumeFilename: row.resume_filename,
     resumeUploadedAt: row.resume_uploaded_at,
@@ -266,8 +353,10 @@ function rowToProfile(row: ProfileRow): Profile {
   };
 }
 
-export function getProfile(db: Db): Profile | undefined {
-  const row = db.prepare('SELECT * FROM profile WHERE id = 1').get() as ProfileRow | undefined;
+export function getProfile(db: Db, userId: number): Profile | undefined {
+  const row = db
+    .prepare('SELECT * FROM profile WHERE user_id = ?')
+    .get(userId) as ProfileRow | undefined;
   return row ? rowToProfile(row) : undefined;
 }
 
@@ -278,15 +367,16 @@ export interface UpsertProfileInput {
   aboutMe?: string | null;
 }
 
-export function upsertProfile(db: Db, input: UpsertProfileInput): Profile {
+export function upsertProfile(db: Db, userId: number, input: UpsertProfileInput): Profile {
   const now = new Date().toISOString();
-  const existing = getProfile(db);
+  const existing = getProfile(db, userId);
 
   if (!existing) {
     db.prepare(
-      `INSERT INTO profile (id, resume_text, resume_filename, resume_uploaded_at, about_me, updated_at)
-       VALUES (1, @resumeText, @resumeFilename, @resumeUploadedAt, @aboutMe, @now)`
+      `INSERT INTO profile (user_id, resume_text, resume_filename, resume_uploaded_at, about_me, updated_at)
+       VALUES (@userId, @resumeText, @resumeFilename, @resumeUploadedAt, @aboutMe, @now)`
     ).run({
+      userId,
       resumeText: input.resumeText ?? null,
       resumeFilename: input.resumeFilename ?? null,
       resumeUploadedAt: input.resumeUploadedAt ?? null,
@@ -303,12 +393,20 @@ export function upsertProfile(db: Db, input: UpsertProfileInput): Profile {
     const columns = Object.keys(fieldMap);
     if (columns.length > 0) {
       const setClause = columns.map((col) => `${col} = @${col}`).join(', ');
-      db.prepare(`UPDATE profile SET ${setClause}, updated_at = @now WHERE id = 1`).run({ ...fieldMap, now });
+      db.prepare(`UPDATE profile SET ${setClause}, updated_at = @now WHERE user_id = @userId`).run({
+        ...fieldMap,
+        now,
+        userId,
+      });
     }
   }
 
-  return getProfile(db)!;
+  return getProfile(db, userId)!;
 }
+
+// ---------------------------------------------------------------------------
+// Job Kits
+// ---------------------------------------------------------------------------
 
 export type KitField = 'cover_letter' | 'resume_bullets' | 'interview_questions' | 'company_brief';
 
@@ -354,13 +452,21 @@ function rowToJobKit(row: JobKitRow): JobKit {
   };
 }
 
-export function getKit(db: Db, jobId: number): JobKit | undefined {
-  const row = db.prepare('SELECT * FROM job_kits WHERE job_id = ?').get(jobId) as JobKitRow | undefined;
+export function getKit(db: Db, userId: number, jobId: number): JobKit | undefined {
+  // Ensure the kit belongs to the authenticated user via the jobs join.
+  const row = db
+    .prepare(
+      'SELECT jk.* FROM job_kits jk JOIN jobs j ON j.id = jk.job_id WHERE jk.job_id = ? AND j.user_id = ?'
+    )
+    .get(jobId, userId) as JobKitRow | undefined;
   return row ? rowToJobKit(row) : undefined;
 }
 
-export function upsertKitField(db: Db, input: UpsertKitFieldInput): JobKit {
-  db.prepare('INSERT OR IGNORE INTO job_kits (job_id) VALUES (?)').run(input.jobId);
+export function upsertKitField(db: Db, userId: number, input: UpsertKitFieldInput): JobKit {
+  // Only insert kit row if the job belongs to this user.
+  db.prepare(
+    'INSERT OR IGNORE INTO job_kits (job_id) SELECT id FROM jobs WHERE id = ? AND user_id = ?'
+  ).run(input.jobId, userId);
 
   const now = new Date().toISOString();
 
@@ -383,7 +489,7 @@ export function upsertKitField(db: Db, input: UpsertKitFieldInput): JobKit {
     ).run({ value: input.value, now, model: input.model, jobId: input.jobId });
   }
 
-  return getKit(db, input.jobId)!;
+  return getKit(db, userId, input.jobId)!;
 }
 
 export interface EditKitFieldInput {
@@ -397,8 +503,10 @@ export interface EditKitFieldInput {
  * columns that describe how the content was generated (`<field>_generated_at`,
  * `model_text`/`model_web`, `company_brief_sources`) — those mean "when/how the
  * model produced this" and must not move just because a person edited the text. */
-export function editKitField(db: Db, input: EditKitFieldInput): JobKit {
-  db.prepare('INSERT OR IGNORE INTO job_kits (job_id) VALUES (?)').run(input.jobId);
+export function editKitField(db: Db, userId: number, input: EditKitFieldInput): JobKit {
+  db.prepare(
+    'INSERT OR IGNORE INTO job_kits (job_id) SELECT id FROM jobs WHERE id = ? AND user_id = ?'
+  ).run(input.jobId, userId);
 
   const column = input.field;
   db.prepare(`UPDATE job_kits SET ${column} = @value WHERE job_id = @jobId`).run({
@@ -406,5 +514,5 @@ export function editKitField(db: Db, input: EditKitFieldInput): JobKit {
     jobId: input.jobId,
   });
 
-  return getKit(db, input.jobId)!;
+  return getKit(db, userId, input.jobId)!;
 }

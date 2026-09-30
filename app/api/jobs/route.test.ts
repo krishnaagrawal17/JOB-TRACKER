@@ -2,10 +2,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { NextRequest } from 'next/server';
-import { createDb, type Db } from '@/lib/db';
+import { createDb, createUser, type Db } from '@/lib/db';
 
 let db: Db;
 let dbPath: string;
+let userId: number;
 
 vi.mock('@/lib/db', async () => {
   const actual = await vi.importActual<typeof import('@/lib/db')>('@/lib/db');
@@ -26,6 +27,8 @@ function cleanupDbFile(p: string) {
 beforeEach(() => {
   dbPath = path.join(os.tmpdir(), `job-tracker-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   db = createDb(dbPath);
+  const user = createUser(db, 'test@example.com', 'hash');
+  userId = user.id;
 });
 
 afterEach(() => {
@@ -34,14 +37,16 @@ afterEach(() => {
 });
 
 function makeGetRequest() {
-  return new NextRequest('http://localhost/api/jobs');
+  return new NextRequest('http://localhost/api/jobs', {
+    headers: { 'X-User-Id': String(userId) },
+  });
 }
 
 function makePostRequest(body: unknown) {
   return new NextRequest('http://localhost/api/jobs', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': String(userId) },
   });
 }
 

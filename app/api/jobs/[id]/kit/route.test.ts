@@ -2,11 +2,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { NextRequest } from 'next/server';
-import { createDb, createJob, upsertProfile, upsertKitField, type Db } from '@/lib/db';
+import { createDb, createUser, createJob, upsertProfile, upsertKitField, type Db } from '@/lib/db';
 import { TEXT_MODEL_SLUG, WEB_MODEL_SLUG } from '@/lib/models';
 
 let db: Db;
 let dbPath: string;
+let userId: number;
 
 vi.mock('@/lib/db', async () => {
   const actual = await vi.importActual<typeof import('@/lib/db')>('@/lib/db');
@@ -32,6 +33,8 @@ function cleanupDbFile(p: string) {
 beforeEach(() => {
   dbPath = path.join(os.tmpdir(), `job-tracker-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   db = createDb(dbPath);
+  const user = createUser(db, 'test@example.com', 'hash');
+  userId = user.id;
 });
 
 afterEach(() => {
@@ -40,8 +43,19 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-function makeRequest() {
-  return new NextRequest('http://localhost/api/jobs/1/kit', { method: 'POST' });
+function makePostRequest() {
+  return new NextRequest('http://localhost/api/jobs/1/kit', {
+    method: 'POST',
+    headers: { 'X-User-Id': String(userId) },
+  });
+}
+
+function makePatchRequest(body: unknown) {
+  return new NextRequest('http://localhost/api/jobs/1/kit', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': String(userId) },
+  });
 }
 
 function makeParams(id: number | string) {
@@ -69,16 +83,16 @@ function mockAllFourSucceed() {
 
 describe('POST /api/jobs/[id]/kit', () => {
   it('returns 404 for a missing job', async () => {
-    const res = await POST(makeRequest(), makeParams(9999));
+    const res = await POST(makePostRequest(), makeParams(9999));
     expect(res.status).toBe(404);
   });
 
   it('generates and persists all four kit fields when every call succeeds', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: 'Remote', salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
-    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: 'Remote', salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, userId, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
     mockAllFourSucceed();
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
 
@@ -93,16 +107,16 @@ describe('POST /api/jobs/[id]/kit', () => {
   });
 
   it('works even when no profile has been set up yet', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
     mockAllFourSucceed();
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
   });
 
   it('persists the three successful fields and reports the one failure when company_brief fails', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
-    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, userId, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
 
     vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
       const prompt = messages[0].content;
@@ -113,7 +127,7 @@ describe('POST /api/jobs/[id]/kit', () => {
       throw new Error(`unexpected prompt: ${prompt}`);
     });
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
 
@@ -126,10 +140,10 @@ describe('POST /api/jobs/[id]/kit', () => {
   });
 
   it('attaches the web plugin only to the company_brief call', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
     mockAllFourSucceed();
 
-    await POST(makeRequest(), makeParams(job.id));
+    await POST(makePostRequest(), makeParams(job.id));
 
     const calls = vi.mocked(callOpenRouter).mock.calls;
     const briefCall = calls.find(([params]) => params.messages[0].content.includes('Write a concise, one-page company brief'));
@@ -140,8 +154,8 @@ describe('POST /api/jobs/[id]/kit', () => {
   });
 
   it('rejects a malformed resume_bullets response (object instead of array) without persisting it', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
-    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, userId, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
 
     vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
       const prompt = messages[0].content;
@@ -152,7 +166,7 @@ describe('POST /api/jobs/[id]/kit', () => {
       throw new Error(`unexpected prompt: ${prompt}`);
     });
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
 
@@ -167,8 +181,8 @@ describe('POST /api/jobs/[id]/kit', () => {
   });
 
   it('rejects a malformed interview_questions response (array of numbers) without persisting it', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
-    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, userId, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
 
     vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
       const prompt = messages[0].content;
@@ -179,7 +193,7 @@ describe('POST /api/jobs/[id]/kit', () => {
       throw new Error(`unexpected prompt: ${prompt}`);
     });
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
 
@@ -194,8 +208,8 @@ describe('POST /api/jobs/[id]/kit', () => {
   });
 
   it('surfaces a timed-out call as that field\'s error while the other three still persist', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
-    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, userId, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
 
     vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
       const prompt = messages[0].content;
@@ -209,7 +223,7 @@ describe('POST /api/jobs/[id]/kit', () => {
       throw new Error(`unexpected prompt: ${prompt}`);
     });
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
 
@@ -223,8 +237,8 @@ describe('POST /api/jobs/[id]/kit', () => {
   });
 
   it('rejects a resume_bullets response that is not valid JSON at all', async () => {
-    const job = createJob(db, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
-    upsertProfile(db, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
+    const job = createJob(db, userId, { title: 'Backend Engineer', company: 'Acme', location: null, salary: null, description: 'Build things.', sourceUrl: null, rawInput: null });
+    upsertProfile(db, userId, { resumeText: 'Jane Doe resume text', aboutMe: 'I like clean APIs.' });
 
     vi.mocked(callOpenRouter).mockImplementation(async ({ messages }) => {
       const prompt = messages[0].content;
@@ -235,7 +249,7 @@ describe('POST /api/jobs/[id]/kit', () => {
       throw new Error(`unexpected prompt: ${prompt}`);
     });
 
-    const res = await POST(makeRequest(), makeParams(job.id));
+    const res = await POST(makePostRequest(), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
 
@@ -247,89 +261,47 @@ describe('POST /api/jobs/[id]/kit', () => {
 
 describe('PATCH /api/jobs/[id]/kit', () => {
   it('saves an edited plain-text field', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'cover_letter', value: 'Edited cover letter text' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(makePatchRequest({ field: 'cover_letter', value: 'Edited cover letter text' }), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.kit.coverLetter).toBe('Edited cover letter text');
   });
 
   it('saves an edited array field', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'resume_bullets', value: ['Edited bullet one', 'Edited bullet two'] }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(makePatchRequest({ field: 'resume_bullets', value: ['Edited bullet one', 'Edited bullet two'] }), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.kit.resumeBullets).toEqual(['Edited bullet one', 'Edited bullet two']);
   });
 
   it('returns 400 for an unknown field', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'not_a_field', value: 'x' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(makePatchRequest({ field: 'not_a_field', value: 'x' }), makeParams(job.id));
     expect(res.status).toBe(400);
   });
 
   it('returns 404 for a missing job', async () => {
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/9999/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'cover_letter', value: 'x' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(9999)
-    );
+    const res = await PATCH(makePatchRequest({ field: 'cover_letter', value: 'x' }), makeParams(9999));
     expect(res.status).toBe(404);
   });
 
   it('returns 400 when value is a string for an array field', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'resume_bullets', value: 'not an array' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(makePatchRequest({ field: 'resume_bullets', value: 'not an array' }), makeParams(job.id));
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when value is an array for a plain-text field', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'cover_letter', value: ['a', 'b'] }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    const res = await PATCH(makePatchRequest({ field: 'cover_letter', value: ['a', 'b'] }), makeParams(job.id));
     expect(res.status).toBe(400);
   });
 
   it('preserves company_brief_sources when the brief is edited (regression: CRITICAL 1)', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    upsertKitField(db, {
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    upsertKitField(db, userId, {
       jobId: job.id,
       field: 'company_brief',
       value: 'Original brief',
@@ -337,14 +309,7 @@ describe('PATCH /api/jobs/[id]/kit', () => {
       sources: ['https://acme.example/about'],
     });
 
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'company_brief', value: 'Edited brief' }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const res = await PATCH(makePatchRequest({ field: 'company_brief', value: 'Edited brief' }), makeParams(job.id));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.kit.companyBrief).toBe('Edited brief');
@@ -355,18 +320,11 @@ describe('PATCH /api/jobs/[id]/kit', () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
-      const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-      upsertKitField(db, { jobId: job.id, field: 'cover_letter', value: 'Original', model: TEXT_MODEL_SLUG });
+      const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+      upsertKitField(db, userId, { jobId: job.id, field: 'cover_letter', value: 'Original', model: TEXT_MODEL_SLUG });
 
       vi.setSystemTime(new Date('2020-01-02T00:00:00.000Z'));
-      const res = await PATCH(
-        new NextRequest('http://localhost/api/jobs/1/kit', {
-          method: 'PATCH',
-          body: JSON.stringify({ field: 'cover_letter', value: 'Edited' }),
-          headers: { 'Content-Type': 'application/json' },
-        }),
-        makeParams(job.id)
-      );
+      const res = await PATCH(makePatchRequest({ field: 'cover_letter', value: 'Edited' }), makeParams(job.id));
       const json = await res.json();
       expect(json.kit.coverLetter).toBe('Edited');
       expect(json.kit.coverLetterGeneratedAt).toBe('2020-01-01T00:00:00.000Z');
@@ -376,17 +334,10 @@ describe('PATCH /api/jobs/[id]/kit', () => {
   });
 
   it('preserves the generation-time model slug when a field is later edited (regression: IMPORTANT 6)', async () => {
-    const job = createJob(db, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
-    upsertKitField(db, { jobId: job.id, field: 'resume_bullets', value: JSON.stringify(['A']), model: TEXT_MODEL_SLUG });
+    const job = createJob(db, userId, { title: 'A', company: null, location: null, salary: null, description: null, sourceUrl: null, rawInput: null });
+    upsertKitField(db, userId, { jobId: job.id, field: 'resume_bullets', value: JSON.stringify(['A']), model: TEXT_MODEL_SLUG });
 
-    const res = await PATCH(
-      new NextRequest('http://localhost/api/jobs/1/kit', {
-        method: 'PATCH',
-        body: JSON.stringify({ field: 'resume_bullets', value: ['B', 'C'] }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      makeParams(job.id)
-    );
+    const res = await PATCH(makePatchRequest({ field: 'resume_bullets', value: ['B', 'C'] }), makeParams(job.id));
     const json = await res.json();
     expect(json.kit.resumeBullets).toEqual(['B', 'C']);
     expect(json.kit.modelText).toBe(TEXT_MODEL_SLUG);

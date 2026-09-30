@@ -36,7 +36,7 @@ export interface JobKit {
 }
 
 export interface Profile {
-  id: 1;
+  id: number;
   resumeText: string | null;
   resumeFilename: string | null;
   resumeUploadedAt: string | null;

@@ -2,10 +2,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { NextRequest } from 'next/server';
-import { createDb, upsertProfile, type Db } from '@/lib/db';
+import { createDb, createUser, upsertProfile, type Db } from '@/lib/db';
 
 let db: Db;
 let dbPath: string;
+let userId: number;
 
 vi.mock('@/lib/db', async () => {
   const actual = await vi.importActual<typeof import('@/lib/db')>('@/lib/db');
@@ -23,6 +24,8 @@ function cleanupDbFile(p: string) {
 beforeEach(() => {
   dbPath = path.join(os.tmpdir(), `job-tracker-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   db = createDb(dbPath);
+  const user = createUser(db, 'test@example.com', 'hash');
+  userId = user.id;
 });
 
 afterEach(() => {
@@ -30,24 +33,30 @@ afterEach(() => {
   cleanupDbFile(dbPath);
 });
 
+function makeGetRequest() {
+  return new NextRequest('http://localhost/api/profile', {
+    headers: { 'X-User-Id': String(userId) },
+  });
+}
+
 function makePatchRequest(body: unknown) {
   return new NextRequest('http://localhost/api/profile', {
     method: 'PATCH',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': String(userId) },
   });
 }
 
 describe('GET /api/profile', () => {
   it('returns null before any profile exists', async () => {
-    const res = await GET();
+    const res = await GET(makeGetRequest());
     const json = await res.json();
     expect(json.profile).toBeNull();
   });
 
   it('returns the stored profile', async () => {
-    upsertProfile(db, { resumeText: 'Resume text', aboutMe: 'About me' });
-    const res = await GET();
+    upsertProfile(db, userId, { resumeText: 'Resume text', aboutMe: 'About me' });
+    const res = await GET(makeGetRequest());
     const json = await res.json();
     expect(json.profile.resumeText).toBe('Resume text');
   });
@@ -63,7 +72,7 @@ describe('PATCH /api/profile', () => {
   });
 
   it('updates only the fields provided', async () => {
-    upsertProfile(db, { resumeText: 'Original', aboutMe: 'Original about' });
+    upsertProfile(db, userId, { resumeText: 'Original', aboutMe: 'Original about' });
     const res = await PATCH(makePatchRequest({ aboutMe: 'Updated about' }));
     const json = await res.json();
     expect(json.profile.resumeText).toBe('Original');

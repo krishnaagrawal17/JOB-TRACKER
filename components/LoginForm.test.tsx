@@ -15,22 +15,24 @@ beforeEach(() => {
   global.fetch = vi.fn();
 });
 
-async function submit(password: string) {
+async function submit(email: string, password: string) {
+  await userEvent.type(screen.getByLabelText(/email/i), email);
   await userEvent.type(screen.getByLabelText(/password/i), password);
-  await userEvent.click(screen.getByRole('button', { name: /log in/i }));
+  await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
 }
 
 describe('LoginForm', () => {
-  it('renders a password field and submit button', () => {
+  it('renders an email field, password field and submit button', () => {
     render(<LoginForm />);
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
   });
 
   it('redirects to the requested path on success', async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200 });
     render(<LoginForm />);
-    await submit('secret');
+    await submit('user@example.com', 'secret');
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/profile'));
   });
 
@@ -50,7 +52,7 @@ describe('LoginForm', () => {
     search = query;
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200 });
     render(<LoginForm />);
-    await submit('secret');
+    await submit('user@example.com', 'secret');
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/'));
   });
 
@@ -58,11 +60,11 @@ describe('LoginForm', () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: false,
       status: 401,
-      json: async () => ({ error: 'Incorrect password.' }),
+      json: async () => ({ error: 'Incorrect email or password.' }),
     });
     render(<LoginForm />);
-    await submit('bad');
-    expect(await screen.findByText('Incorrect password.')).toBeInTheDocument();
+    await submit('user@example.com', 'bad');
+    expect(await screen.findByText('Incorrect email or password.')).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
   });
 
@@ -71,8 +73,8 @@ describe('LoginForm', () => {
       () => new Promise(() => {}),
     );
     render(<LoginForm />);
-    const button = screen.getByRole('button', { name: /log in/i });
-    await submit('secret');
+    const button = screen.getByRole('button', { name: /sign in/i });
+    await submit('user@example.com', 'secret');
     expect(button).toBeDisabled();
     await userEvent.click(button);
     expect(global.fetch).toHaveBeenCalledTimes(1);

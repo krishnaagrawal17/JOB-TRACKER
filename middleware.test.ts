@@ -3,6 +3,7 @@ import { signSession, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from '@/lib
 import { middleware } from './middleware';
 
 const SECRET = 'middleware-test-secret';
+const USER_ID = 1;
 
 function request(pathname: string, cookie?: string): NextRequest {
   const req = new NextRequest(`http://localhost:3000${pathname}`);
@@ -11,16 +12,19 @@ function request(pathname: string, cookie?: string): NextRequest {
 }
 
 async function validCookie(): Promise<string> {
-  return signSession(Date.now() + SESSION_MAX_AGE_SECONDS * 1000, SECRET);
+  return signSession(USER_ID, Date.now() + SESSION_MAX_AGE_SECONDS * 1000, SECRET);
 }
 
 beforeEach(() => {
   process.env.AUTH_SESSION_SECRET = SECRET;
-  process.env.AUTH_PASSWORD_HASH = 'aa:bb';
+});
+
+afterEach(() => {
+  delete process.env.AUTH_SESSION_SECRET;
 });
 
 describe('middleware gate', () => {
-  it.each(['/login', '/api/auth/login', '/api/auth/logout'])(
+  it.each(['/login', '/register', '/api/auth/login', '/api/auth/logout', '/api/auth/register'])(
     'lets %s through without a session',
     async (path) => {
       expect((await middleware(request(path))).status).toBe(200);
@@ -49,24 +53,32 @@ describe('middleware gate', () => {
     expect((await middleware(request('/api/jobs', await validCookie()))).status).toBe(200);
   });
 
+  it('forwards X-User-Id header for authenticated requests', async () => {
+    const cookie = await validCookie();
+    const response = await middleware(request('/api/jobs', cookie));
+    expect(response.status).toBe(200);
+    // NextResponse.next({ request: { headers } }) encodes rewritten request headers
+    // as x-middleware-request-<name> on the response — see next/dist/server/web/
+    // spec-extension/response.js — so this is a real assertion, not a stand-in.
+    expect(response.headers.get('x-middleware-request-x-user-id')).toBe(String(USER_ID));
+  });
+
   it('rejects a forged cookie', async () => {
-    const forged = await signSession(Date.now() + 60_000, 'the-wrong-secret');
+    const forged = await signSession(USER_ID, Date.now() + 60_000, 'the-wrong-secret');
     expect((await middleware(request('/api/jobs', forged))).status).toBe(401);
   });
 
   it('rejects an expired cookie', async () => {
-    const expired = await signSession(Date.now() - 1, SECRET);
+    const expired = await signSession(USER_ID, Date.now() - 1, SECRET);
     expect((await middleware(request('/api/jobs', expired))).status).toBe(401);
   });
 
   it('fails closed when auth is not configured', async () => {
-    delete process.env.AUTH_PASSWORD_HASH;
     delete process.env.AUTH_SESSION_SECRET;
     expect((await middleware(request('/api/jobs', await validCookie()))).status).toBe(503);
   });
 
   it('still lets /login through when auth is not configured', async () => {
-    delete process.env.AUTH_PASSWORD_HASH;
     delete process.env.AUTH_SESSION_SECRET;
     expect((await middleware(request('/login'))).status).toBe(200);
   });

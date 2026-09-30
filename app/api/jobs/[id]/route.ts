@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getJob, updateJob, deleteJob, getKit } from '@/lib/db';
+import { getRequestUserId } from '@/lib/auth/getRequestUserId';
 import type { Stage } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -29,13 +30,14 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     return NextResponse.json({ error: 'Invalid job id.' }, { status: 400 });
   }
 
+  const userId = getRequestUserId(request);
   const db = getDb();
-  const job = getJob(db, jobId);
+  const job = getJob(db, userId, jobId);
   if (!job) {
     return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
   }
 
-  const kit = getKit(db, jobId) ?? null;
+  const kit = getKit(db, userId, jobId) ?? null;
   return NextResponse.json({ job, kit });
 }
 
@@ -58,8 +60,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
     return NextResponse.json({ error: 'position must be a number.' }, { status: 400 });
   }
 
+  const userId = getRequestUserId(request);
   const db = getDb();
-  const job = updateJob(db, jobId, {
+  const job = updateJob(db, userId, jobId, {
     stage: body.stage as Stage | undefined,
     position: body.position as number | undefined,
     title: body.title !== undefined ? (body.title as string | null) : undefined,
@@ -85,12 +88,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
     return NextResponse.json({ error: 'Invalid job id.' }, { status: 400 });
   }
 
+  const userId = getRequestUserId(request);
   const db = getDb();
-  const existing = getJob(db, jobId);
+  const existing = getJob(db, userId, jobId);
   if (!existing) {
     return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
   }
 
-  deleteJob(db, jobId);
+  deleteJob(db, userId, jobId);
   return NextResponse.json({ success: true });
 }

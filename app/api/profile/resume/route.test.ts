@@ -3,10 +3,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { NextRequest } from 'next/server';
-import { createDb, getProfile, type Db } from '@/lib/db';
+import { createDb, createUser, getProfile, type Db } from '@/lib/db';
 
 let db: Db;
 let dbPath: string;
+let userId: number;
 
 vi.mock('@/lib/db', async () => {
   const actual = await vi.importActual<typeof import('@/lib/db')>('@/lib/db');
@@ -29,6 +30,8 @@ function cleanupDbFile(p: string) {
 beforeEach(() => {
   dbPath = path.join(os.tmpdir(), `job-tracker-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   db = createDb(dbPath);
+  const user = createUser(db, 'test@example.com', 'hash');
+  userId = user.id;
 });
 
 afterEach(() => {
@@ -43,6 +46,7 @@ function makeUploadRequest(file: File) {
   return new NextRequest('http://localhost/api/profile/resume', {
     method: 'POST',
     body: formData,
+    headers: { 'X-User-Id': String(userId) },
   });
 }
 
@@ -58,14 +62,18 @@ describe('POST /api/profile/resume', () => {
     expect(json.profile.resumeFilename).toBe('resume.pdf');
     expect(extractResumeText).toHaveBeenCalledWith(expect.any(Buffer), 'application/pdf');
 
-    const stored = getProfile(db);
+    const stored = getProfile(db, userId);
     expect(stored?.resumeText).toBe('Extracted resume text');
   });
 
   it('returns 400 when no file is provided', async () => {
     const formData = new FormData();
     const res = await POST(
-      new NextRequest('http://localhost/api/profile/resume', { method: 'POST', body: formData })
+      new NextRequest('http://localhost/api/profile/resume', {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-User-Id': String(userId) },
+      })
     );
     expect(res.status).toBe(400);
   });

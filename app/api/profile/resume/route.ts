@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, upsertProfile } from '@/lib/db';
+import { getRequestUserId } from '@/lib/auth/getRequestUserId';
 import { extractResumeText } from '@/lib/resumeParse';
 
 export const runtime = 'nodejs';
@@ -10,6 +11,7 @@ const SUPPORTED_TYPES = [
 ];
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const userId = getRequestUserId(request);
   const formData = await request.formData();
   const file = formData.get('resume');
 
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const resumeText = await extractResumeText(buffer, file.type);
 
     const db = getDb();
-    const profile = upsertProfile(db, {
+    const profile = upsertProfile(db, userId, {
       resumeText,
       resumeFilename: file.name,
       resumeUploadedAt: new Date().toISOString(),

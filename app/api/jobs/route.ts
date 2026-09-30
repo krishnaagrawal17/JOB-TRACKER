@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getJobs, createJob } from '@/lib/db';
+import { getRequestUserId } from '@/lib/auth/getRequestUserId';
 import type { Stage } from '@/lib/types';
 
 const VALID_STAGES: Stage[] = ['wishlist', 'applied', 'interviewing', 'offer', 'rejected'];
@@ -16,13 +17,15 @@ interface CreateJobRequestBody {
   extraFields?: unknown;
 }
 
-export async function GET(_request: NextRequest): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const userId = getRequestUserId(request);
   const db = getDb();
-  const jobs = getJobs(db);
+  const jobs = getJobs(db, userId);
   return NextResponse.json({ jobs });
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const userId = getRequestUserId(request);
   const body = (await request.json()) as CreateJobRequestBody;
 
   if (body.stage !== undefined && !VALID_STAGES.includes(body.stage as Stage)) {
@@ -30,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const db = getDb();
-  const job = createJob(db, {
+  const job = createJob(db, userId, {
     stage: body.stage as Stage | undefined,
     title: typeof body.title === 'string' ? body.title : null,
     company: typeof body.company === 'string' ? body.company : null,

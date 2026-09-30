@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getDb, getJob, getProfile, upsertKitField, editKitField, getKit, type KitField } from '@/lib/db';
+import { getRequestUserId } from '@/lib/auth/getRequestUserId';
 import { callOpenRouter } from '@/lib/openrouter';
 import {
   buildCoverLetterPrompt,
@@ -46,15 +47,16 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     return NextResponse.json({ error: 'Invalid job id.' }, { status: 400 });
   }
 
+  const userId = getRequestUserId(request);
   const db = getDb();
-  const job = getJob(db, jobId);
+  const job = getJob(db, userId, jobId);
   if (!job) {
     return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
   }
 
   const profile: Profile =
-    getProfile(db) ?? {
-      id: 1,
+    getProfile(db, userId) ?? {
+      id: 0,
       resumeText: null,
       resumeFilename: null,
       resumeUploadedAt: null,
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           model: TEXT_MODEL_SLUG,
           messages: [{ role: 'user', content: buildCoverLetterPrompt(job, profile) }],
         });
-        upsertKitField(db, { jobId, field: 'cover_letter', value: content.trim(), model: TEXT_MODEL_SLUG });
+        upsertKitField(db, userId, { jobId, field: 'cover_letter', value: content.trim(), model: TEXT_MODEL_SLUG });
       },
     },
     {
@@ -81,7 +83,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           messages: [{ role: 'user', content: buildBulletsPrompt(job, profile) }],
         });
         const bullets = parseStringArrayResponse(content, 'resume_bullets');
-        upsertKitField(db, { jobId, field: 'resume_bullets', value: JSON.stringify(bullets), model: TEXT_MODEL_SLUG });
+        upsertKitField(db, userId, { jobId, field: 'resume_bullets', value: JSON.stringify(bullets), model: TEXT_MODEL_SLUG });
       },
     },
     {
@@ -92,7 +94,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           messages: [{ role: 'user', content: buildQuestionsPrompt(job, profile) }],
         });
         const questions = parseStringArrayResponse(content, 'interview_questions');
-        upsertKitField(db, {
+        upsertKitField(db, userId, {
           jobId,
           field: 'interview_questions',
           value: JSON.stringify(questions),
@@ -113,7 +115,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
         // string), so company_brief_sources stays null and CompanyBriefSection's citation
         // list never renders. The column, parsing, and UI are kept for a future phase
         // that threads annotations through — this is deferred scope, not a bug.
-        upsertKitField(db, { jobId, field: 'company_brief', value: content.trim(), model: WEB_MODEL_SLUG });
+        upsertKitField(db, userId, { jobId, field: 'company_brief', value: content.trim(), model: WEB_MODEL_SLUG });
       },
     },
   ];
@@ -128,7 +130,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     }
   });
 
-  const kit = getKit(db, jobId) ?? null;
+  const kit = getKit(db, userId, jobId) ?? null;
   const partial = Object.keys(errors).length > 0;
 
   return NextResponse.json({ kit, partial, errors });
@@ -148,8 +150,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
     return NextResponse.json({ error: 'Invalid job id.' }, { status: 400 });
   }
 
+  const userId = getRequestUserId(request);
   const db = getDb();
-  const job = getJob(db, jobId);
+  const job = getJob(db, userId, jobId);
   if (!job) {
     return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
   }
@@ -179,7 +182,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
   // editKitField (not upsertKitField) is deliberate: a human edit must not overwrite
   // <field>_generated_at, model_text/model_web, or company_brief_sources — those describe
   // how/when the model generated the content, not when it was last touched by a person.
-  const kit = editKitField(db, { jobId, field, value });
+  const kit = editKitField(db, userId, { jobId, field, value });
 
   return NextResponse.json({ kit });
 }
