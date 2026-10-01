@@ -56,6 +56,7 @@ Open `/register`, create an account, then add a job. Other scripts: `npm test` (
 - Auth: registration, login/logout, scrypt-hashed passwords, signed HttpOnly session cookies, per-user data isolation, per-email lockout.
 - 283 automated tests pass across 43 files (`npm test`, run 2026-10-01).
 - A human has run the app in a browser and generated a kit end to end (recorded in `CLAUDE.md`, 2026-08-16).
+- Not deployed
 
 **Partial**
 - **Multi-user conversion** was built without a spec or plan and verified only by automated tests and curl — not yet by a human in a browser (login/register page styling and the links between them are unchecked).
@@ -63,11 +64,7 @@ Open `/register`, create an account, then add a job. Other scripts: `npm test` (
 - **Company briefs are only as good as the company's web presence.** Because the brief is web-grounded, a company with little or no online footprint can produce a confident brief about a *different*, similarly-named company. Observed in testing. Worth checking the brief against the company name before trusting it.
 - **Auth branch**: work lives on `auth-phase-1`, and `main` still has no login gate. The auth phase's original per-task code review for the middleware gate was never completed (reviewer API errors), so no independent whole-branch review has been done.
 
-**Not built**
-- Password reset / "forgot password" (considered and deliberately declined).
-- Account identity in the header (no email/avatar shown), invite-only or admin-gated registration (sign-up is open to anyone who can reach the app), server-side session revocation (logout only clears the cookie).
-- Hosting/deployment — it is designed to run locally; it has not been deployed.
-- Host allowlist for the job-URL fetcher (documented as an accepted risk in the single-user design; it matters more now that there are multiple accounts).
+
 
 ## Built with AI assistance
 
