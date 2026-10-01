@@ -51,20 +51,19 @@ Open `/register`, create an account, then add a job. Other scripts: `npm test` (
 
 ## Status
 
+*Runs locally; not deployed.*
+
 **Working**
 - Board, drag-and-drop, add-job flow, job detail with editable kit, profile + resume upload, kit generation.
 - Auth: registration, login/logout, scrypt-hashed passwords, signed HttpOnly session cookies, per-user data isolation, per-email lockout.
 - 283 automated tests pass across 43 files (`npm test`, run 2026-10-01).
 - A human has run the app in a browser and generated a kit end to end (recorded in `CLAUDE.md`, 2026-08-16).
-- Not deployed
 
 **Partial**
 - **Multi-user conversion** was built without a spec or plan and verified only by automated tests and curl — not yet by a human in a browser (login/register page styling and the links between them are unchecked).
 - **Company brief citations**: the OpenRouter web plugin returns source links, but `callOpenRouter` discards them, so the brief shows no sources. The column and UI exist; the wiring is deferred.
 - **Company briefs are only as good as the company's web presence.** Because the brief is web-grounded, a company with little or no online footprint can produce a confident brief about a *different*, similarly-named company. Observed in testing. Worth checking the brief against the company name before trusting it.
-- **Auth branch**: work lives on `auth-phase-1`, and `main` still has no login gate. The auth phase's original per-task code review for the middleware gate was never completed (reviewer API errors), so no independent whole-branch review has been done.
-
-
+- **Auth review**: the auth work is merged into `main`, but the middleware gate's independent code review was never completed (reviewer API errors), so that diff has had no second pair of eyes.
 
 ## Built with AI assistance
 
