@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-A local-only personal job-application tracker for Krishna (non-technical job seeker): a
+A local-only personal job-application tracker: a
 kanban board (Wishlist → Applied → Interviewing → Offer → Rejected) where jobs are added by
 pasting a URL or text, dragged between stages, and — per job — an AI "kit" (tailored cover
 letter, rewritten resume bullets, five likely interview questions, a web-search-grounded
@@ -636,9 +636,10 @@ on 2026-08-18 is a new, dedicated repo (`JOB-TRACKER`). **Never point this repo 
 
 Pushed to **https://github.com/krishnaagrawal17/JOB-TRACKER**, **private**. Private because the
 design docs describe the owner's personal job search; it can be flipped public later, which is not
-reversible in the other direction. **If it ever goes public, first rewrite `CLAUDE.md`'s opening
-line** — it describes the project as being for "Krishna (non-technical job seeker)", which is not
-what a hiring manager should read alongside the code. That is still pending and still matters.
+reversible in the other direction. **The "non-technical job seeker" phrasing was removed on
+2026-10-01** from this file's opening line and from the design spec's Context section — it was not
+what a hiring manager should read alongside the code, and the repo is a portfolio piece. Do not
+reintroduce it.
 
 **The git identity was fixed by rewriting history before the push, and must not be re-litigated.**
 All commits had been authored to `krishnaagrawal@Krishnas-MacBook-Air.local` and

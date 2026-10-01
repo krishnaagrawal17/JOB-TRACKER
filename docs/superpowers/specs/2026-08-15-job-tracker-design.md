@@ -2,8 +2,8 @@
 
 ## Context
 
-Krishna (non-technical job seeker) wants a personal job application tracker: a kanban-style
-board (Wishlist → Applied → Interviewing → Offer → Rejected) where each job is a card he can
+The owner wants a personal job application tracker: a kanban-style
+board (Wishlist → Applied → Interviewing → Offer → Rejected) where each job is a card they can
 add by pasting a URL or text, drag between stages, and — per card — generate an AI "kit"
 (tailored cover letter, rewritten resume bullets, five likely interview questions, a one-page
 company brief) using OpenRouter. The goal is to reduce the per-application friction of writing
