@@ -67,4 +67,4 @@ Open `/register`, create an account, then add a job. Other scripts: `npm test` (
 
 ## Built with AI assistance
 
-This project was built with AI assistance (Claude Code) using a spec-first, test-driven workflow: a design spec and a 21-task implementation plan were written before any code (both in `docs/superpowers/`), each task was implemented test-first and reviewed, and the suite now stands at **283 tests across 43 files** (`npm test`).
+This project was built with AI assistance using a spec-first, test-driven workflow: a design spec and a 21-task implementation plan were written before any code (both in `docs/superpowers/`), each task was implemented test-first and reviewed, and the suite now stands at **283 tests across 43 files** (`npm test`).
